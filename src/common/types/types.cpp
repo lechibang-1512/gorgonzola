@@ -886,9 +886,6 @@ PhysicalTypeID LogicalType::getPhysicalType(LogicalTypeID typeID,
     case LogicalTypeID::INTERNAL_ID: {
         return PhysicalTypeID::INTERNAL_ID;
     }
-    case LogicalTypeID::UINT128: {
-        return PhysicalTypeID::UINT128;
-    }
     case LogicalTypeID::BLOB:
     case LogicalTypeID::STRING: {
         return PhysicalTypeID::STRING;

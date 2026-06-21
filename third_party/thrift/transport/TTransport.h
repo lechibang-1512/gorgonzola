@@ -23,6 +23,7 @@
 #include "Thrift.h"
 #include "transport/TTransportException.h"
 #include <memory>
+#include <cstdint>
 #include <string>
 
 namespace kuzu_apache {

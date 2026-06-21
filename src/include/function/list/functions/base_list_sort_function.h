@@ -35,7 +35,7 @@ public:
         }
     }
 
-    template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template<typename T, typename std::enable_if<std::is_integral<T>::value && !std::is_same<T, bool>::value, int>::type = 0>
     static void sortValuesInternal(T* arr, size_t n, bool ascOrder) {
         if (n <= 1) return;
         using UT = typename std::make_unsigned<T>::type;
@@ -91,7 +91,7 @@ public:
         }
     }
 
-    template<typename T, typename std::enable_if<!std::is_integral<T>::value, int>::type = 0>
+    template<typename T, typename std::enable_if<!std::is_integral<T>::value || std::is_same<T, bool>::value, int>::type = 0>
     static void sortValuesInternal(T* arr, size_t n, bool ascOrder) {
         if (ascOrder) {
             std::sort(arr, arr + n, std::less{});

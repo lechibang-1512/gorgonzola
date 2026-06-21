@@ -56,6 +56,11 @@ struct KUZU_API TableFuncBindData {
     }
 
     template<class TARGET>
+    TARGET* ptrCast() {
+        return common::ku_dynamic_cast<TARGET*>(this);
+    }
+
+    template<class TARGET>
     TARGET& cast() {
         return *common::ku_dynamic_cast<TARGET*>(this);
     }

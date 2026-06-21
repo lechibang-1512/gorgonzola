@@ -29,6 +29,7 @@
 #include "protocol/TProtocolException.h"
 
 #include <memory>
+#include <cstdint>
 
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
