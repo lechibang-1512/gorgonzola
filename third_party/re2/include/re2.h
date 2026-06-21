@@ -218,14 +218,14 @@
 
 #include "stringpiece.h"
 
-namespace kuzu {
+namespace gorgonzola {
 namespace regex {
 class Prog;
 class Regexp;
 } // namespace regex
-} // namespace kuzu
+} // namespace gorgonzola
 
-namespace kuzu {
+namespace gorgonzola {
 namespace regex {
 
 // Interface for regular expression matching.  Also corresponds to a
@@ -739,8 +739,8 @@ private:
     // First cache line is relatively cold fields.
     const std::string* pattern_;         // string regular expression
     Options options_;                    // option flags
-    kuzu::regex::Regexp* entire_regexp_; // parsed regular expression
-    kuzu::regex::Regexp* suffix_regexp_; // parsed regular expression, prefix_ removed
+    gorgonzola::regex::Regexp* entire_regexp_; // parsed regular expression
+    gorgonzola::regex::Regexp* suffix_regexp_; // parsed regular expression, prefix_ removed
     const std::string* error_;           // error indicator (or points to empty string)
     const std::string* error_arg_;       // fragment of regexp showing error (or ditto)
 
@@ -1002,9 +1002,9 @@ DECLARE_HOOK(DFASearchFailure)
 
 } // namespace hooks
 } // namespace regex
-} // namespace kuzu
+} // namespace gorgonzola
 
-using kuzu::regex::LazyRE2;
-using kuzu::regex::RE2;
+using gorgonzola::regex::LazyRE2;
+using gorgonzola::regex::RE2;
 
 #endif // RE2_RE2_H_

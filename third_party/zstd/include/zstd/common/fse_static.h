@@ -18,7 +18,7 @@
 /* *** Dependency *** */
 #include "zstd/common/bitstream.h"
 
-namespace kuzu_zstd {
+namespace gorgonzola_zstd {
 
 /* *****************************************
 *  Static allocation

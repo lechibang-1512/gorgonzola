@@ -33,7 +33,7 @@
 #include <sanitizer/msan_interface.h>
 #endif
 
-namespace kuzu_zstd {
+namespace gorgonzola_zstd {
 /*-*************************************
 *  Helper functions
 ***************************************/

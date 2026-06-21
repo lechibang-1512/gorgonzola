@@ -17,12 +17,12 @@
  * under the License.
  */
 
-#ifndef _KUZU_THRIFT_TAPPLICATIONEXCEPTION_H_
-#define _KUZU_THRIFT_TAPPLICATIONEXCEPTION_H_ 1
+#ifndef _GORGONZOLA_THRIFT_TAPPLICATIONEXCEPTION_H_
+#define _GORGONZOLA_THRIFT_TAPPLICATIONEXCEPTION_H_ 1
 
 #include "Thrift.h"
 
-namespace kuzu_apache {
+namespace gorgonzola_apache {
 namespace thrift {
 
 namespace protocol {
@@ -107,6 +107,6 @@ protected:
   TApplicationExceptionType type_;
 };
 }
-} // kuzu_apache::thrift
+} // gorgonzola_apache::thrift
 
-#endif // #ifndef _KUZU_THRIFT_TAPPLICATIONEXCEPTION_H_
+#endif // #ifndef _GORGONZOLA_THRIFT_TAPPLICATIONEXCEPTION_H_

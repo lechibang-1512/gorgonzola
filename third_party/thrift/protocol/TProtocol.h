@@ -17,8 +17,8 @@
  * under the License.
  */
 
-#ifndef _KUZU_THRIFT_PROTOCOL_TPROTOCOL_H_
-#define _KUZU_THRIFT_PROTOCOL_TPROTOCOL_H_ 1
+#ifndef _GORGONZOLA_THRIFT_PROTOCOL_TPROTOCOL_H_
+#define _GORGONZOLA_THRIFT_PROTOCOL_TPROTOCOL_H_ 1
 
 #ifdef _WIN32
 // Need to come before any Windows.h includes
@@ -45,7 +45,7 @@
 // but that doesn't work.
 // For a pretty in-depth explanation of the problem, see
 // http://cellperformance.beyond3d.com/articles/2006/06/understanding-strict-aliasing.html
-namespace kuzu_apache { namespace thrift {
+namespace gorgonzola_apache { namespace thrift {
 template <typename To, typename From>
 static inline To bitwise_cast(From from) {
 	static_assert(sizeof(From) == sizeof(To), "sizeof(From) == sizeof(To)");
@@ -77,7 +77,7 @@ static inline To bitwise_cast(From from) {
 	u.f = from;
 	return u.t;
 }
-}} // namespace kuzu_apache::thrift
+}} // namespace gorgonzola_apache::thrift
 
 
 #ifdef HAVE_SYS_PARAM_H
@@ -166,11 +166,11 @@ static inline To bitwise_cast(From from) {
 # error "Can't define THRIFT_htonll or THRIFT_ntohll!"
 #endif
 
-namespace kuzu_apache {
+namespace gorgonzola_apache {
 namespace thrift {
 namespace protocol {
 
-using kuzu_apache::thrift::transport::TTransport;
+using gorgonzola_apache::thrift::transport::TTransport;
 
 /**
  * Enumerated definition of the types that the Thrift protocol supports.
@@ -761,6 +761,6 @@ uint32_t skip(Protocol_& prot, TType type) {
                            "invalid TType");
 }
 
-}}} // kuzu_apache::thrift::protocol
+}}} // gorgonzola_apache::thrift::protocol
 
-#endif // #define _KUZU_THRIFT_PROTOCOL_TPROTOCOL_H_ 1
+#endif // #define _GORGONZOLA_THRIFT_PROTOCOL_TPROTOCOL_H_ 1

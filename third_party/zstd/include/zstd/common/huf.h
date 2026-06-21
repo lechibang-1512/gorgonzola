@@ -33,7 +33,7 @@
 #  define HUF_PUBLIC_API
 #endif
 
-namespace kuzu_zstd {
+namespace gorgonzola_zstd {
 
 /* ========================== */
 /* ***  simple functions  *** */

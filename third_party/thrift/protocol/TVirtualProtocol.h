@@ -17,16 +17,16 @@
  * under the License.
  */
 
-#ifndef _KUZU_THRIFT_PROTOCOL_TVIRTUALPROTOCOL_H_
-#define _KUZU_THRIFT_PROTOCOL_TVIRTUALPROTOCOL_H_ 1
+#ifndef _GORGONZOLA_THRIFT_PROTOCOL_TVIRTUALPROTOCOL_H_
+#define _GORGONZOLA_THRIFT_PROTOCOL_TVIRTUALPROTOCOL_H_ 1
 
 #include "protocol/TProtocol.h"
 
-namespace kuzu_apache {
+namespace gorgonzola_apache {
 namespace thrift {
 namespace protocol {
 
-using kuzu_apache::thrift::transport::TTransport;
+using gorgonzola_apache::thrift::transport::TTransport;
 
 /**
  * Helper class that provides default implementations of TProtocol methods.
@@ -298,7 +298,7 @@ public:
                              "this protocol does not support writing (yet).");
   }
 
-  uint32_t skip(TType type) { return ::kuzu_apache::thrift::protocol::skip(*this, type); }
+  uint32_t skip(TType type) { return ::gorgonzola_apache::thrift::protocol::skip(*this, type); }
 
 protected:
   TProtocolDefaults(std::shared_ptr<TTransport> ptrans) : TProtocol(ptrans) {}
@@ -485,7 +485,7 @@ public:
    */
   uint32_t skip(TType type) {
     auto* const prot = static_cast<Protocol_*>(this);
-    return ::kuzu_apache::thrift::protocol::skip(*prot, type);
+    return ::gorgonzola_apache::thrift::protocol::skip(*prot, type);
   }
 
   /*
@@ -508,6 +508,6 @@ protected:
 };
 }
 }
-} // kuzu_apache::thrift::protocol
+} // gorgonzola_apache::thrift::protocol
 
-#endif // #define _KUZU_THRIFT_PROTOCOL_TVIRTUALPROTOCOL_H_ 1
+#endif // #define _GORGONZOLA_THRIFT_PROTOCOL_TVIRTUALPROTOCOL_H_ 1

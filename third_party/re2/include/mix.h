@@ -9,7 +9,7 @@
 
 #include <limits>
 
-namespace kuzu {
+namespace gorgonzola {
 namespace regex {
 
 // Silence "truncation of constant value" warning for kMul in 32-bit mode.
@@ -39,5 +39,5 @@ private:
 #endif
 
 } // namespace regex
-} // namespace kuzu
+} // namespace gorgonzola
 #endif // UTIL_MIX_H_

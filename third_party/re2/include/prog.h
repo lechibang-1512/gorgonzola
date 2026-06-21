@@ -24,7 +24,7 @@
 #include "sparse_set.h"
 #include "util.h"
 
-namespace kuzu {
+namespace gorgonzola {
 namespace regex {
 
 // Opcodes for Inst
@@ -470,6 +470,6 @@ static inline const char* EndPtr(const StringPiece& s) {
 }
 
 } // namespace regex
-} // namespace kuzu
+} // namespace gorgonzola
 
 #endif // RE2_PROG_H_

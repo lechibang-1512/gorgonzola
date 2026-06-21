@@ -17,8 +17,8 @@
  * under the License.
  */
 
-#ifndef _KUZU_THRIFT_TRANSPORT_TTRANSPORT_H_
-#define _KUZU_THRIFT_TRANSPORT_TTRANSPORT_H_ 1
+#ifndef _GORGONZOLA_THRIFT_TRANSPORT_TTRANSPORT_H_
+#define _GORGONZOLA_THRIFT_TRANSPORT_TTRANSPORT_H_ 1
 
 #include "Thrift.h"
 #include "transport/TTransportException.h"
@@ -26,7 +26,7 @@
 #include <cstdint>
 #include <string>
 
-namespace kuzu_apache {
+namespace gorgonzola_apache {
 namespace thrift {
 namespace transport {
 
@@ -122,7 +122,7 @@ public:
     return readAll_virt(buf, len);
   }
   virtual uint32_t readAll_virt(uint8_t* buf, uint32_t len) {
-    return kuzu_apache::thrift::transport::readAll(*this, buf, len);
+    return gorgonzola_apache::thrift::transport::readAll(*this, buf, len);
   }
 
   /**
@@ -267,6 +267,6 @@ public:
 };
 }
 }
-} // kuzu_apache::thrift::transport
+} // gorgonzola_apache::thrift::transport
 
-#endif // #ifndef _KUZU_THRIFT_TRANSPORT_TTRANSPORT_H_
+#endif // #ifndef _GORGONZOLA_THRIFT_TRANSPORT_TTRANSPORT_H_

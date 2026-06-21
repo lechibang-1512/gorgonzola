@@ -12,7 +12,7 @@
 
 #include "zstd/common/error_private.h"
 
-namespace kuzu_zstd {
+namespace gorgonzola_zstd {
 
 const char* ERR_getErrorString(ERR_enum code)
 {

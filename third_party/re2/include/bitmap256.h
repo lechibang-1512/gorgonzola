@@ -14,7 +14,7 @@
 #include "logging.h"
 #include "util.h"
 
-namespace kuzu {
+namespace gorgonzola {
 namespace regex {
 
 class Bitmap256 {
@@ -111,5 +111,5 @@ int Bitmap256::FindNextSetBit(int c) const {
 }
 
 } // namespace regex
-} // namespace kuzu
+} // namespace gorgonzola
 #endif // RE2_BITMAP256_H_
