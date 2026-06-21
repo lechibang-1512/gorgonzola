@@ -157,7 +157,7 @@ py::object PyQueryResult::convertValueToPyObject(const Value& value) {
         return py::bytes(blobBytesArray, blobStr.size());
     }
     case LogicalTypeID::UUID: {
-        gorgonzola::common::int128_t result = value.getValue<gorgonzola::common::int128_t>();
+        gorgonzola::common::uint128_t result = value.getValue<gorgonzola::common::uint128_t>();
         std::string uuidString = gorgonzola::common::UUID::toString(result);
         auto UUID = importCache->uuid.UUID();
         return UUID(uuidString);

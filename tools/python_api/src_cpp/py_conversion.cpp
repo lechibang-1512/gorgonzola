@@ -188,7 +188,7 @@ void transformPythonValue(common::ValueVector* outputVector, uint64_t pos, py::h
     } break;
     case PythonObjectType::UUID: {
         outputVector->setNull(pos, false /* isNull */);
-        int128_t result = 0;
+        uint128_t result = 0;
         UUID::fromString(ele.attr("hex").cast<std::string>(), result);
         outputVector->setValue(pos, result);
     } break;
