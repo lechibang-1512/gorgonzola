@@ -725,7 +725,7 @@ oC_ComparisonExpression
         | kU_BitwiseOrOperatorExpression SP? kU_ComparisonOperator SP? kU_BitwiseOrOperatorExpression ( SP? kU_ComparisonOperator SP? kU_BitwiseOrOperatorExpression )+ { notifyNonBinaryComparison($ctx->start); }
         ;
 
-kU_ComparisonOperator : '=' | '<>' | '<' | '<=' | '>' | '>=' ;
+kU_ComparisonOperator : '=' | '<>' | '<' | '<=' | '>' | '>=' | IN ;
 
 INVALID_NOT_EQUAL : '!=' ;
 
@@ -757,8 +757,7 @@ oC_StringListNullOperatorExpression
     : oC_UnaryAddSubtractOrFactorialExpression ( oC_StringOperatorExpression | oC_ListOperatorExpression+ | oC_NullOperatorExpression )? ;
 
 oC_ListOperatorExpression
-    : ( SP IN SP? oC_PropertyOrLabelsExpression )
-        | ( '[' oC_Expression ']' )
+    : ( '[' oC_Expression ']' )
         | ( '[' oC_Expression? ( COLON | DOTDOT ) oC_Expression? ']' ) ;
 
 COLON : ':' ;

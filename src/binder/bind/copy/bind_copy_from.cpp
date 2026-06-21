@@ -98,10 +98,11 @@ static void bindExpectedRelColumns(const RelGroupCatalogEntry& entry,
     std::vector<LogicalType>& columnTypes);
 
 static std::pair<ColumnEvaluateType, std::shared_ptr<Expression>> matchColumnExpression(
-    const expression_vector& columns, const PropertyDefinition& property,
-    ExpressionBinder& expressionBinder) {
-    for (auto& column : columns) {
-        if (property.getName() == column->toString()) {
+    const expression_vector& columns, const std::vector<std::string>& columnNames,
+    const PropertyDefinition& property, ExpressionBinder& expressionBinder) {
+    for (auto i = 0u; i < columns.size(); ++i) {
+        auto& column = columns[i];
+        if (property.getName() == columnNames[i]) {
             if (column->dataType == property.getType()) {
                 return {ColumnEvaluateType::REFERENCE, column};
             } else {
@@ -132,7 +133,7 @@ BoundCopyFromInfo Binder::bindCopyNodeFromInfo(std::string tableName,
     std::vector<ColumnEvaluateType> evaluateTypes;
     for (auto& property : properties) {
         auto [evaluateType, column] =
-            matchColumnExpression(boundSource->getColumns(), property, expressionBinder);
+            matchColumnExpression(boundSource->getColumns(), boundSource->getColumnNames(), property, expressionBinder);
         columns.push_back(column);
         evaluateTypes.push_back(evaluateType);
     }
@@ -200,7 +201,7 @@ BoundCopyFromInfo Binder::bindCopyRelFromInfo(std::string tableName,
     for (auto i = 1u; i < properties.size(); ++i) { // skip internal ID
         auto& property = properties[i];
         auto [evaluateType, column] =
-            matchColumnExpression(boundSource->getColumns(), property, expressionBinder);
+            matchColumnExpression(boundSource->getColumns(), boundSource->getColumnNames(), property, expressionBinder);
         columnExprs.push_back(column);
         evaluateTypes.push_back(evaluateType);
     }

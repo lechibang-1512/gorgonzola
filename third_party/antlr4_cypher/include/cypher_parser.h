@@ -2274,6 +2274,7 @@ public:
   public:
     KU_ComparisonOperatorContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *IN();
 
    
   };
@@ -2421,10 +2422,6 @@ public:
   public:
     OC_ListOperatorExpressionContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    std::vector<antlr4::tree::TerminalNode *> SP();
-    antlr4::tree::TerminalNode* SP(size_t i);
-    antlr4::tree::TerminalNode *IN();
-    OC_PropertyOrLabelsExpressionContext *oC_PropertyOrLabelsExpression();
     std::vector<OC_ExpressionContext *> oC_Expression();
     OC_ExpressionContext* oC_Expression(size_t i);
     antlr4::tree::TerminalNode *COLON();

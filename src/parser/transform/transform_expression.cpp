@@ -13,7 +13,7 @@
 #include "parser/expression/parsed_subquery_expression.h"
 #include "parser/expression/parsed_variable_expression.h"
 #include "parser/transformer.h"
-
+#include "common/string_utils.h"
 using namespace gorgonzola::common;
 using namespace gorgonzola::function;
 
@@ -112,10 +112,16 @@ std::unique_ptr<ParsedExpression> Transformer::transformComparisonExpression(
     } else if (comparisonOperator == "<") {
         return std::make_unique<ParsedExpression>(ExpressionType::LESS_THAN, std::move(left),
             std::move(right), ctx.getText());
-    } else {
-        KU_ASSERT(comparisonOperator == "<=");
+    } else if (comparisonOperator == "<=") {
         return std::make_unique<ParsedExpression>(ExpressionType::LESS_THAN_EQUALS, std::move(left),
             std::move(right), ctx.getText());
+    } else {
+        KU_ASSERT(common::StringUtils::getUpper(comparisonOperator) == "IN");
+        auto listContains = std::make_unique<ParsedFunctionExpression>(ListContainsFunction::name,
+            ctx.getText());
+        listContains->addChild(std::move(right));
+        listContains->addChild(std::move(left));
+        return listContains;
     }
 }
 
@@ -305,14 +311,6 @@ std::unique_ptr<ParsedExpression> Transformer::transformStringOperatorExpression
 std::unique_ptr<ParsedExpression> Transformer::transformListOperatorExpression(
     CypherParser::OC_ListOperatorExpressionContext& ctx, std::unique_ptr<ParsedExpression> child) {
     auto raw = child->getRawName() + ctx.getText();
-    if (ctx.IN()) { // x IN y
-        auto listContains =
-            std::make_unique<ParsedFunctionExpression>(ListContainsFunction::name, std::move(raw));
-        auto right = transformPropertyOrLabelsExpression(*ctx.oC_PropertyOrLabelsExpression());
-        listContains->addChild(std::move(right));
-        listContains->addChild(std::move(child));
-        return listContains;
-    }
     if (ctx.COLON() || ctx.DOTDOT()) { // x[:]/x[..]
         auto listSlice =
             std::make_unique<ParsedFunctionExpression>(ListSliceFunction::name, std::move(raw));

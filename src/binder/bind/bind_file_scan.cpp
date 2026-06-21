@@ -178,11 +178,9 @@ std::unique_ptr<BoundBaseScanSource> Binder::bindQueryScanSource(const BaseScanS
         throw BinderException(stringFormat("Query returns {} columns but {} columns were expected.",
             columns.size(), columnNames.size()));
     }
-    for (auto i = 0u; i < columns.size(); ++i) {
-        columns[i]->setAlias(columnNames[i]);
-    }
     auto scanInfo = BoundQueryScanSourceInfo(bindParsingOptions(options));
-    return std::make_unique<BoundQueryScanSource>(std::move(boundStatement), std::move(scanInfo));
+    return std::make_unique<BoundQueryScanSource>(std::move(boundStatement), std::move(scanInfo),
+        columnNames);
 }
 
 static TableFunction getObjectScanFunc(const std::string& dbName, const std::string& tableName,

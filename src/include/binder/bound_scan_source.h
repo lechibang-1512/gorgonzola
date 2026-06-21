@@ -16,6 +16,7 @@ struct BoundBaseScanSource {
     virtual ~BoundBaseScanSource() = default;
 
     virtual expression_vector getColumns() = 0;
+    virtual std::vector<std::string> getColumnNames() const = 0;
     virtual expression_vector getWarningColumns() const { return expression_vector{}; };
     virtual bool getIgnoreErrorsOption() const {
         return common::CopyConstants::DEFAULT_IGNORE_ERRORS;
@@ -42,6 +43,13 @@ struct BoundTableScanSource final : BoundBaseScanSource {
         : BoundBaseScanSource{other}, info{other.info.copy()} {}
 
     expression_vector getColumns() override { return info.bindData->columns; }
+    std::vector<std::string> getColumnNames() const override {
+        std::vector<std::string> names;
+        for (auto& column : info.bindData->columns) {
+            names.push_back(column->toString());
+        }
+        return names;
+    }
     expression_vector getWarningColumns() const override;
     bool getIgnoreErrorsOption() const override;
     common::column_id_t getNumWarningDataColumns() const override {
@@ -63,11 +71,12 @@ struct BoundQueryScanSource final : BoundBaseScanSource {
     // We should consider implement a copy constructor though.
     std::shared_ptr<BoundStatement> statement;
     BoundQueryScanSourceInfo info;
+    std::vector<std::string> columnNames;
 
     explicit BoundQueryScanSource(std::shared_ptr<BoundStatement> statement,
-        BoundQueryScanSourceInfo info)
+        BoundQueryScanSourceInfo info, std::vector<std::string> columnNames)
         : BoundBaseScanSource{common::ScanSourceType::QUERY}, statement{std::move(statement)},
-          info(std::move(info)) {}
+          info(std::move(info)), columnNames{std::move(columnNames)} {}
     BoundQueryScanSource(const BoundQueryScanSource& other) = default;
 
     bool getIgnoreErrorsOption() const override;
@@ -75,6 +84,7 @@ struct BoundQueryScanSource final : BoundBaseScanSource {
     expression_vector getColumns() override {
         return statement->getStatementResult()->getColumns();
     }
+    std::vector<std::string> getColumnNames() const override { return columnNames; }
 
     std::unique_ptr<BoundBaseScanSource> copy() const override {
         return std::make_unique<BoundQueryScanSource>(*this);
