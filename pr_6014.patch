@@ -1,0 +1,880 @@
+diff --git a/src/function/function_collection.cpp b/src/function/function_collection.cpp
+index f54cd664496..f5e3af82388 100644
+--- a/src/function/function_collection.cpp
++++ b/src/function/function_collection.cpp
+@@ -128,6 +128,10 @@ FunctionCollection* FunctionCollection::getFunctions() {
+         SCALAR_FUNCTION(ListReduceFunction), SCALAR_FUNCTION(ListAnyFunction),
+         SCALAR_FUNCTION(ListAllFunction), SCALAR_FUNCTION(ListNoneFunction),
+         SCALAR_FUNCTION(ListSingleFunction), SCALAR_FUNCTION(ListHasAllFunction),
++        SCALAR_FUNCTION(ListCosineSimilarityFunction), SCALAR_FUNCTION(ListCosineDistanceFunction),
++        SCALAR_FUNCTION(ListDistanceFunction), SCALAR_FUNCTION(ListHasAnyFunction),
++        SCALAR_FUNCTION(ListIntersectFunction), SCALAR_FUNCTION(ListSelectFunction),
++        SCALAR_FUNCTION(ListWhereFunction),
+ 
+         // Cast functions
+         SCALAR_FUNCTION(CastToDateFunction), SCALAR_FUNCTION_ALIAS(DateFunction),
+diff --git a/src/function/list/CMakeLists.txt b/src/function/list/CMakeLists.txt
+index d19cc2606f2..5d6e9977758 100644
+--- a/src/function/list/CMakeLists.txt
++++ b/src/function/list/CMakeLists.txt
+@@ -7,6 +7,7 @@ add_library(kuzu_list_function
+         list_append_function.cpp
+         list_concat_function.cpp
+         list_contains_function.cpp
++        list_binary_float_function.cpp
+         list_creation.cpp
+         list_distinct_function.cpp
+         list_extract_function.cpp
+@@ -26,7 +27,11 @@ add_library(kuzu_list_function
+         list_single.cpp
+         size_function.cpp
+         quantifier_functions.cpp
+-        list_has_all.cpp)
++        list_has_all.cpp
++        list_has_any.cpp
++        list_intersect.cpp
++        list_select_function.cpp
++        list_where_function.cpp)
+ 
+ set(ALL_OBJECT_FILES
+         ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:kuzu_list_function>
+diff --git a/src/function/list/list_binary_float_function.cpp b/src/function/list/list_binary_float_function.cpp
+new file mode 100644
+index 00000000000..ee5abe40318
+--- /dev/null
++++ b/src/function/list/list_binary_float_function.cpp
+@@ -0,0 +1,182 @@
++#include "math.h"
++
++#include "common/exception/binder.h"
++#include "common/exception/message.h"
++#include "common/type_utils.h"
++#include "common/vector/value_vector.h"
++#include "function/list/functions/list_function_utils.h"
++#include "function/list/vector_list_functions.h"
++#include "function/scalar_function.h"
++#include <simsimd.h>
++
++using namespace gorgonzola::common;
++
++namespace gorgonzola {
++namespace function {
++
++struct ListCosineSimilarity {
++    template<std::floating_point T>
++    static void operation(common::list_entry_t& left, common::list_entry_t& right, T& result,
++        common::ValueVector& leftVector, common::ValueVector& rightVector,
++        common::ValueVector& /*resultVector*/) {
++        auto leftElements = (T*)common::ListVector::getListValues(&leftVector, left);
++        auto rightElements = (T*)common::ListVector::getListValues(&rightVector, right);
++        if (left.size != right.size) {
++            throw BinderException(stringFormat("LIST_COSINE_SIMILARITY requires both arguments to "
++                                               "be in same size: left : {} ; right : {}",
++                left.size, right.size));
++        }
++        KU_ASSERT(left.size == right.size);
++        simsimd_distance_t tmpResult = 0.0;
++        static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
++        if constexpr (std::is_same_v<T, float>) {
++            simsimd_cos_f32(leftElements, rightElements, left.size, &tmpResult);
++        } else {
++            simsimd_cos_f64(leftElements, rightElements, left.size, &tmpResult);
++        }
++        result = 1.0 - tmpResult;
++    }
++};
++
++struct ListCosineDistance {
++    template<std::floating_point T>
++    static void operation(common::list_entry_t& left, common::list_entry_t& right, T& result,
++        common::ValueVector& leftVector, common::ValueVector& rightVector,
++        common::ValueVector& /*resultVector*/) {
++        auto leftElements = (T*)common::ListVector::getListValues(&leftVector, left);
++        auto rightElements = (T*)common::ListVector::getListValues(&rightVector, right);
++        if (left.size != right.size) {
++            throw BinderException(stringFormat("LIST_COSINE_DISTANCE requires both arguments to be "
++                                               "in same size: left : {} ; right : {}",
++                left.size, right.size));
++        }
++        KU_ASSERT(left.size == right.size);
++        simsimd_distance_t tmpResult = 0.0;
++        static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
++        if constexpr (std::is_same_v<T, float>) {
++            simsimd_cos_f32(leftElements, rightElements, left.size, &tmpResult);
++        } else {
++            simsimd_cos_f64(leftElements, rightElements, left.size, &tmpResult);
++        }
++        result = tmpResult;
++    }
++};
++
++struct ListDistance {
++    template<std::floating_point T>
++    static void operation(common::list_entry_t& left, common::list_entry_t& right, T& result,
++        common::ValueVector& leftVector, common::ValueVector& rightVector,
++        common::ValueVector& /*resultVector*/) {
++        auto leftElements = (T*)common::ListVector::getListValues(&leftVector, left);
++        auto rightElements = (T*)common::ListVector::getListValues(&rightVector, right);
++        if (left.size != right.size) {
++            throw BinderException(stringFormat(
++                "LIST_DISTANCE requires both arguments to be in same size: left : {} ; right : {}",
++                left.size, right.size));
++        }
++        KU_ASSERT(left.size == right.size);
++        simsimd_distance_t tmpResult = 0.0;
++        static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
++        if constexpr (std::is_same_v<T, float>) {
++            simsimd_l2sq_f32(leftElements, rightElements, left.size, &tmpResult);
++        } else {
++            simsimd_l2sq_f64(leftElements, rightElements, left.size, &tmpResult);
++        }
++        result = std::sqrt(tmpResult);
++    }
++};
++
++static void validateChildType(const LogicalType& type, const std::string& functionName) {
++    switch (type.getLogicalTypeID()) {
++    case LogicalTypeID::DOUBLE:
++    case LogicalTypeID::FLOAT:
++        return;
++    default:
++        throw BinderException(
++            stringFormat("{} requires argument type to be FLOAT[] or DOUBLE[].", functionName));
++    }
++}
++
++static LogicalType validateListFunctionParameters(const LogicalType& leftType,
++    const LogicalType& rightType, const std::string& functionName) {
++    if ((leftType.getPhysicalType() != common::PhysicalTypeID::LIST) ||
++        (rightType.getPhysicalType() != common::PhysicalTypeID::LIST)) {
++        throw BinderException(
++            stringFormat("Function {} did not receive correct arguments", functionName));
++    }
++    const auto& leftChildType = ListType::getChildType(leftType);
++    const auto& rightChildType = ListType::getChildType(rightType);
++    validateChildType(leftChildType, functionName);
++    validateChildType(rightChildType, functionName);
++    if (leftType.getLogicalTypeID() == common::LogicalTypeID::LIST) {
++        return leftType.copy();
++    } else if (rightType.getLogicalTypeID() == common::LogicalTypeID::LIST) {
++        return rightType.copy();
++    }
++    throw BinderException(
++        stringFormat("{} requires at least one argument to be LIST.", functionName));
++}
++
++template<typename OPERATION, typename RESULT>
++static scalar_func_exec_t getBinaryListExecFuncSwitchResultType() {
++    auto execFunc =
++        ScalarFunction::BinaryExecListStructFunction<list_entry_t, list_entry_t, RESULT, OPERATION>;
++    return execFunc;
++}
++
++template<typename OPERATION>
++scalar_func_exec_t getScalarExecFunc(LogicalType type) {
++    scalar_func_exec_t execFunc;
++    switch (ListType::getChildType(type).getLogicalTypeID()) {
++    case LogicalTypeID::FLOAT:
++        execFunc = getBinaryListExecFuncSwitchResultType<OPERATION, float>();
++        break;
++    case LogicalTypeID::DOUBLE:
++        execFunc = getBinaryListExecFuncSwitchResultType<OPERATION, double>();
++        break;
++    default:
++        KU_UNREACHABLE;
++    }
++    return execFunc;
++}
++
++template<typename OPERATION>
++static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
++    std::vector<LogicalType> types;
++    types.push_back(input.arguments[0]->getDataType().copy());
++    types.push_back(input.arguments[1]->getDataType().copy());
++    auto paramType = validateListFunctionParameters(types[0], types[1], input.definition->name);
++    input.definition->ptrCast<ScalarFunction>()->execFunc =
++        std::move(getScalarExecFunc<OPERATION>(paramType.copy()));
++    auto bindData = std::make_unique<FunctionBindData>(ListType::getChildType(paramType).copy());
++    std::vector<LogicalType> paramTypes;
++    for (auto& _ : input.arguments) {
++        (void)_;
++        bindData->paramTypes.push_back(paramType.copy());
++    }
++    return bindData;
++}
++template<typename OPERATION>
++function_set templateGetFunctionSet(const std::string& name) {
++    function_set result;
++    auto function = std::make_unique<ScalarFunction>(name,
++        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::LIST}, LogicalTypeID::ANY);
++    function->bindFunc = bindFunc<OPERATION>;
++    result.push_back(std::move(function));
++    return result;
++}
++
++function_set ListCosineSimilarityFunction::getFunctionSet() {
++    return templateGetFunctionSet<ListCosineSimilarity>(name);
++}
++
++function_set ListCosineDistanceFunction::getFunctionSet() {
++    return templateGetFunctionSet<ListCosineDistance>(name);
++}
++
++function_set ListDistanceFunction::getFunctionSet() {
++    return templateGetFunctionSet<ListDistance>(name);
++}
++
++} // namespace function
++} // namespace gorgonzola
+diff --git a/src/function/list/list_has_all.cpp b/src/function/list/list_has_all.cpp
+index a62c0f06222..f235664b1f7 100644
+--- a/src/function/list/list_has_all.cpp
++++ b/src/function/list/list_has_all.cpp
+@@ -35,7 +35,7 @@ struct ListHasAll {
+     }
+ };
+ 
+-std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
++static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
+     std::vector<LogicalType> types;
+     for (auto& arg : input.arguments) {
+         if (arg->dataType == LogicalType::ANY()) {
+diff --git a/src/function/list/list_has_any.cpp b/src/function/list/list_has_any.cpp
+new file mode 100644
+index 00000000000..187d08f946f
+--- /dev/null
++++ b/src/function/list/list_has_any.cpp
+@@ -0,0 +1,68 @@
++#include "common/exception/binder.h"
++#include "common/exception/message.h"
++#include "common/type_utils.h"
++#include "function/list/functions/list_position_function.h"
++#include "function/list/vector_list_functions.h"
++#include "function/scalar_function.h"
++
++using namespace gorgonzola::common;
++
++namespace gorgonzola {
++namespace function {
++
++struct ListHasAny {
++    static void operation(common::list_entry_t& left, common::list_entry_t& right, uint8_t& result,
++        common::ValueVector& leftVector, common::ValueVector& rightVector,
++        common::ValueVector& resultVector) {
++        int64_t pos = 0;
++        auto rightDataVector = ListVector::getDataVector(&rightVector);
++        result = false;
++        for (auto i = 0u; i < right.size; i++) {
++            common::TypeUtils::visit(ListType::getChildType(rightVector.dataType).getPhysicalType(),
++                [&]<typename T>(T) {
++                    if (rightDataVector->isNull(right.offset + i)) {
++                        return;
++                    }
++                    ListPosition::operation(left,
++                        *(T*)ListVector::getListValuesWithOffset(&rightVector, right, i), pos,
++                        leftVector, *ListVector::getDataVector(&rightVector), resultVector);
++                    result = (pos != 0);
++                });
++            if (result) {
++                return;
++            }
++        }
++    }
++};
++
++static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
++    std::vector<LogicalType> types;
++    for (auto& arg : input.arguments) {
++        if (arg->dataType == LogicalType::ANY()) {
++            types.push_back(LogicalType::LIST(LogicalType::INT64()));
++        } else {
++            types.push_back(arg->dataType.copy());
++        }
++    }
++    if (types[0] != types[1]) {
++        throw common::BinderException(ExceptionMessage::listFunctionIncompatibleChildrenType(
++            ListHasAnyFunction::name, input.arguments[0]->getDataType().toString(),
++            input.arguments[1]->getDataType().toString()));
++    }
++    return std::make_unique<FunctionBindData>(std::move(types), LogicalType::BOOL());
++}
++
++function_set ListHasAnyFunction::getFunctionSet() {
++    function_set result;
++    auto execFunc = ScalarFunction::BinaryExecListStructFunction<list_entry_t, list_entry_t,
++        uint8_t, ListHasAny>;
++    auto function = std::make_unique<ScalarFunction>(name,
++        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::LIST}, LogicalTypeID::BOOL,
++        execFunc);
++    function->bindFunc = bindFunc;
++    result.push_back(std::move(function));
++    return result;
++}
++
++} // namespace function
++} // namespace gorgonzola
+diff --git a/src/function/list/list_intersect.cpp b/src/function/list/list_intersect.cpp
+new file mode 100644
+index 00000000000..45deacf2ca4
+--- /dev/null
++++ b/src/function/list/list_intersect.cpp
+@@ -0,0 +1,84 @@
++#include "common/exception/binder.h"
++#include "common/exception/message.h"
++#include "common/type_utils.h"
++#include "function/list/functions/list_function_utils.h"
++#include "function/list/functions/list_position_function.h"
++#include "function/list/functions/list_unique_function.h"
++#include "function/list/vector_list_functions.h"
++#include "function/scalar_function.h"
++
++using namespace gorgonzola::common;
++
++namespace gorgonzola {
++namespace function {
++
++struct ListIntersect {
++    static void operation(common::list_entry_t& left, common::list_entry_t& right,
++        common::list_entry_t& result, common::ValueVector& leftVector,
++        common::ValueVector& rightVector, common::ValueVector& resultVector) {
++        int64_t pos = 0;
++        auto rightDataVector = common::ListVector::getDataVector(&rightVector);
++        auto rightPos = right.offset;
++        std::vector<offset_t> rightOffsets;
++        for (auto i = 0u; i < right.size; i++) {
++            common::TypeUtils::visit(ListType::getChildType(rightVector.dataType).getPhysicalType(),
++                [&]<typename T>(T) {
++                    if (rightDataVector->isNull(right.offset + i)) {
++                        return;
++                    }
++                    ListPosition::operation(left,
++                        *(T*)ListVector::getListValuesWithOffset(&rightVector, right, i), pos,
++                        leftVector, *ListVector::getDataVector(&rightVector), resultVector);
++                });
++            if (pos != 0) {
++                rightOffsets.push_back(rightPos + i);
++            }
++        }
++        common::ValueVector tempVec(
++            gorgonzola::common::LogicalType::LIST(rightDataVector->dataType.copy()), nullptr, nullptr);
++        auto tempDataVec = common::ListVector::getDataVector(&tempVec);
++        auto temp = common::ListVector::addList(&tempVec, rightOffsets.size());
++        auto tempPos = temp.offset;
++        for (auto i = 0u; i < rightOffsets.size(); i++) {
++            tempDataVec->copyFromVectorData(tempPos++, rightDataVector,
++                rightPos + rightOffsets.at(i));
++        }
++        auto numUniqueValues = ListUnique::appendListElementsToValueSet(temp, tempVec);
++        result = common::ListVector::addList(&resultVector, numUniqueValues);
++        auto resultDataVector = common::ListVector::getDataVector(&resultVector);
++        auto resultDataVectorBuffer =
++            common::ListVector::getListValuesWithOffset(&resultVector, result, 0 /* offset */);
++        ListUnique::appendListElementsToValueSet(temp, tempVec, nullptr,
++            [&resultDataVector, &resultDataVectorBuffer](common::ValueVector& dataVector,
++                uint64_t pos) -> void {
++                resultDataVector->copyFromVectorData(resultDataVectorBuffer, &dataVector,
++                    dataVector.getData() + pos * dataVector.getNumBytesPerValue());
++                resultDataVectorBuffer += dataVector.getNumBytesPerValue();
++            });
++    }
++};
++static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
++    std::vector<LogicalType> types;
++    types.push_back(input.arguments[0]->getDataType().copy());
++    types.push_back(input.arguments[1]->getDataType().copy());
++    if (types[0] != types[1]) {
++        throw BinderException(ExceptionMessage::listFunctionIncompatibleChildrenType(
++            ListIntersectFunction::name, types[0].toString(), types[1].toString()));
++    }
++    return std::make_unique<FunctionBindData>(std::move(types), types[0].copy());
++}
++
++function_set ListIntersectFunction::getFunctionSet() {
++    function_set result;
++    auto execFunc = ScalarFunction::BinaryExecListStructFunction<list_entry_t, list_entry_t,
++        list_entry_t, ListIntersect>;
++    auto function = std::make_unique<ScalarFunction>(name,
++        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::LIST}, LogicalTypeID::LIST,
++        execFunc);
++    function->bindFunc = bindFunc;
++    result.push_back(std::move(function));
++    return result;
++}
++
++} // namespace function
++} // namespace gorgonzola
+diff --git a/src/function/list/list_select_function.cpp b/src/function/list/list_select_function.cpp
+new file mode 100644
+index 00000000000..aec949e963d
+--- /dev/null
++++ b/src/function/list/list_select_function.cpp
+@@ -0,0 +1,70 @@
++#include "common/exception/binder.h"
++#include "common/exception/message.h"
++#include "common/type_utils.h"
++#include "common/types/types.h"
++#include "function/list/functions/list_function_utils.h"
++#include "function/list/functions/list_position_function.h"
++#include "function/list/functions/list_unique_function.h"
++#include "function/list/vector_list_functions.h"
++#include "function/scalar_function.h"
++
++using namespace gorgonzola::common;
++
++namespace gorgonzola {
++namespace function {
++
++struct ListSelect {
++    static void operation(common::list_entry_t& left, common::list_entry_t& right,
++        common::list_entry_t& result, common::ValueVector& leftVector,
++        common::ValueVector& rightVector, common::ValueVector& resultVector) {
++        result = common::ListVector::addList(&resultVector, right.size);
++        auto resultDataVector = common::ListVector::getDataVector(&resultVector);
++        auto resultPos = result.offset;
++        auto leftDataVector = common::ListVector::getDataVector(&leftVector);
++        auto rightDataVector = common::ListVector::getDataVector(&rightVector);
++        auto rightPos = right.offset;
++        for (auto i = 0u; i < right.size; i++) {
++            auto leftIndexPos = rightDataVector->getValue<long long>(rightPos + i) - 1;
++            if ((leftIndexPos < 0) || (leftIndexPos >= left.size)) {
++                // append null to result if out of index
++                resultDataVector->setNull(resultPos++, true);
++            } else {
++                resultDataVector->copyFromVectorData(resultPos++, leftDataVector, leftIndexPos);
++            }
++        }
++    }
++};
++static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
++    std::vector<LogicalType> types;
++    types.push_back(input.arguments[0]->getDataType().copy());
++    types.push_back(input.arguments[1]->getDataType().copy());
++    if (types[0].getPhysicalType() != PhysicalTypeID::LIST) {
++        throw BinderException("LIST_SELECT expecting argument type: LIST of ANY, LIST of INT");
++    }
++    if (types[1].getPhysicalType() != PhysicalTypeID::LIST) {
++        throw BinderException(ExceptionMessage::listFunctionIncompatibleChildrenType(
++            ListIntersectFunction::name, types[0].toString(), types[1].toString()));
++    } else {
++        auto thisExtraTypeInfo = types[1].getExtraTypeInfo();
++        auto thisListTypeInfo = ku_dynamic_cast<const ListTypeInfo*>(thisExtraTypeInfo);
++        if (thisListTypeInfo->getChildType().getPhysicalType() != PhysicalTypeID::INT64) {
++            throw BinderException("LIST_SELECT expecting argument type: LIST of ANY, LIST of INT");
++        }
++    }
++    return std::make_unique<FunctionBindData>(std::move(types), types[0].copy());
++}
++
++function_set ListSelectFunction::getFunctionSet() {
++    function_set result;
++    auto execFunc = ScalarFunction::BinaryExecListStructFunction<list_entry_t, list_entry_t,
++        list_entry_t, ListSelect>;
++    auto function = std::make_unique<ScalarFunction>(name,
++        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::LIST}, LogicalTypeID::LIST,
++        execFunc);
++    function->bindFunc = bindFunc;
++    result.push_back(std::move(function));
++    return result;
++}
++
++} // namespace function
++} // namespace gorgonzola
+diff --git a/src/function/list/list_where_function.cpp b/src/function/list/list_where_function.cpp
+new file mode 100644
+index 00000000000..6349b62d116
+--- /dev/null
++++ b/src/function/list/list_where_function.cpp
+@@ -0,0 +1,85 @@
++#include "common/exception/binder.h"
++#include "common/exception/message.h"
++#include "common/type_utils.h"
++#include "common/types/types.h"
++#include "function/list/functions/list_function_utils.h"
++#include "function/list/functions/list_position_function.h"
++#include "function/list/functions/list_unique_function.h"
++#include "function/list/vector_list_functions.h"
++#include "function/scalar_function.h"
++
++using namespace gorgonzola::common;
++
++namespace gorgonzola {
++namespace function {
++
++struct ListWhere {
++    static void operation(common::list_entry_t& left, common::list_entry_t& right,
++        common::list_entry_t& result, common::ValueVector& leftVector,
++        common::ValueVector& rightVector, common::ValueVector& resultVector) {
++        auto leftDataVector = common::ListVector::getDataVector(&leftVector);
++        auto leftPos = left.offset;
++        auto rightDataVector = common::ListVector::getDataVector(&rightVector);
++        auto rightPos = right.offset;
++        list_size_t resultSize = 0;
++        std::vector<bool> maskListBools;
++        for (auto i = 0u; i < right.size; i++) {
++            if (rightDataVector->isNull(rightPos + i)) {
++                throw BinderException(
++                    "NULLs are not allowed as list elements in the second input parameter.");
++            }
++            auto maskBool = rightDataVector->getValue<bool>(rightPos + i);
++            if (maskBool) {
++                resultSize++;
++            }
++            maskListBools.push_back(maskBool);
++        }
++        result = common::ListVector::addList(&resultVector, resultSize);
++        auto resultDataVector = common::ListVector::getDataVector(&resultVector);
++        auto resultPos = result.offset;
++        for (auto i = 0u; i < right.size; i++) {
++            auto maskBool = maskListBools.at(i);
++            if (maskBool) {
++                if (leftPos + i < left.size) {
++                    resultDataVector->copyFromVectorData(resultPos++, leftDataVector, leftPos + i);
++                } else {
++                    resultDataVector->setNull(resultPos++, true);
++                }
++            }
++        }
++    }
++};
++static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
++    std::vector<LogicalType> types;
++    types.push_back(input.arguments[0]->getDataType().copy());
++    types.push_back(input.arguments[1]->getDataType().copy());
++    if (types[0].getPhysicalType() != PhysicalTypeID::LIST) {
++        throw BinderException("LIST_WHERE expecting argument type: LIST of ANY, LIST of BOOL");
++    }
++    if (types[1].getPhysicalType() != PhysicalTypeID::LIST) {
++        throw BinderException(ExceptionMessage::listFunctionIncompatibleChildrenType(
++            ListIntersectFunction::name, types[0].toString(), types[1].toString()));
++    } else {
++        auto thisExtraTypeInfo = types[1].getExtraTypeInfo();
++        auto thisListTypeInfo = ku_dynamic_cast<const ListTypeInfo*>(thisExtraTypeInfo);
++        if (thisListTypeInfo->getChildType().getPhysicalType() != PhysicalTypeID::BOOL) {
++            throw BinderException("LIST_WHERE expecting argument type: LIST of ANY, LIST of BOOL");
++        }
++    }
++    return std::make_unique<FunctionBindData>(std::move(types), types[0].copy());
++}
++
++function_set ListWhereFunction::getFunctionSet() {
++    function_set result;
++    auto execFunc = ScalarFunction::BinaryExecListStructFunction<list_entry_t, list_entry_t,
++        list_entry_t, ListWhere>;
++    auto function = std::make_unique<ScalarFunction>(name,
++        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::LIST}, LogicalTypeID::LIST,
++        execFunc);
++    function->bindFunc = bindFunc;
++    result.push_back(std::move(function));
++    return result;
++}
++
++} // namespace function
++} // namespace gorgonzola
+diff --git a/src/function/list/list_zip_function.cpp b/src/function/list/list_zip_function.cpp
+new file mode 100644
+index 00000000000..e69de29bb2d
+diff --git a/src/include/function/list/vector_list_functions.h b/src/include/function/list/vector_list_functions.h
+index 52c08f463b7..087a504d476 100644
+--- a/src/include/function/list/vector_list_functions.h
++++ b/src/include/function/list/vector_list_functions.h
+@@ -212,5 +212,47 @@ struct ListHasAllFunction {
+     static function_set getFunctionSet();
+ };
+ 
++struct ListHasAnyFunction {
++    static constexpr const char* name = "LIST_HAS_ANY";
++
++    static function_set getFunctionSet();
++};
++
++struct ListCosineSimilarityFunction {
++    static constexpr const char* name = "LIST_COSINE_SIMILARITY";
++
++    static function_set getFunctionSet();
++};
++
++struct ListCosineDistanceFunction {
++    static constexpr const char* name = "LIST_COSINE_DISTANCE";
++
++    static function_set getFunctionSet();
++};
++
++struct ListDistanceFunction {
++    static constexpr const char* name = "LIST_DISTANCE";
++
++    static function_set getFunctionSet();
++};
++
++struct ListIntersectFunction {
++    static constexpr const char* name = "LIST_INTERSECT";
++
++    static function_set getFunctionSet();
++};
++
++struct ListSelectFunction {
++    static constexpr const char* name = "LIST_SELECT";
++
++    static function_set getFunctionSet();
++};
++
++struct ListWhereFunction {
++    static constexpr const char* name = "LIST_WHERE";
++
++    static function_set getFunctionSet();
++};
++
+ } // namespace function
+ } // namespace gorgonzola
+diff --git a/test/test_files/function/list.test b/test/test_files/function/list.test
+index 4cebbfdae55..d1268307287 100644
+--- a/test/test_files/function/list.test
++++ b/test/test_files/function/list.test
+@@ -2138,3 +2138,248 @@ True
+ -STATEMENT RETURN LIST_CAT(null, null)
+ ---- 1
+ 
++-CASE ListCosineSimilarity
++-STATEMENT RETURN list_cosine_similarity([1,2,3],[4,5,6])
++---- error
++Binder exception: LIST_COSINE_SIMILARITY requires argument type to be FLOAT[] or DOUBLE[].
++
++-STATEMENT RETURN list_cosine_similarity([1.0,2.0,3.0],[4.0,5.0,6.0])
++---- 1
++0.974632
++
++-STATEMENT RETURN list_cosine_similarity([1.0,NULL,3.0,4.0],[4.0,5.0,6.0])
++---- error
++Binder exception: LIST_COSINE_SIMILARITY requires both arguments to be in same size: left : 4 ; right : 3
++
++-STATEMENT RETURN list_cosine_similarity(null,null)
++---- error
++Binder exception: Function LIST_COSINE_SIMILARITY did not receive correct arguments
++
++-STATEMENT RETURN list_cosine_similarity(2,3,4,5)
++---- error
++Binder exception: Function LIST_COSINE_SIMILARITY did not receive correct arguments:
++Actual:   (INT64,INT64,INT64,INT64)
++Expected: (LIST,LIST) -> ANY
++
++-STATEMENT RETURN list_cosine_similarity([1.5, 2.4, 3.3, 1.23, 4.56],[4.53,6.23,6.55,3.42,2.44])
++---- 1
++0.835090
++
++-CASE ListCosineDistance
++-STATEMENT RETURN list_cosine_distance([1,2,3],[4,5,6])
++---- error
++Binder exception: LIST_COSINE_DISTANCE requires argument type to be FLOAT[] or DOUBLE[].
++
++-STATEMENT RETURN list_cosine_distance([1.0,2.0,3.0],[4.0,5.0,6.0])
++---- 1
++0.025368
++
++-STATEMENT RETURN list_cosine_distance([1.0,NULL,3.0,4.0],[4.0,5.0,6.0])
++---- error
++Binder exception: LIST_COSINE_DISTANCE requires both arguments to be in same size: left : 4 ; right : 3
++
++-STATEMENT RETURN list_cosine_distance(null,null)
++---- error
++Binder exception: Function LIST_COSINE_DISTANCE did not receive correct arguments
++
++-STATEMENT RETURN list_cosine_distance(2,3,4,5)
++---- error
++Binder exception: Function LIST_COSINE_DISTANCE did not receive correct arguments:
++Actual:   (INT64,INT64,INT64,INT64)
++Expected: (LIST,LIST) -> ANY
++
++-STATEMENT RETURN list_cosine_distance([1.5, 2.4, 3.3, 1.23, 4.56],[4.53,6.23,6.55,3.42,2.44])
++---- 1
++0.164910
++
++-CASE ListDistance
++-STATEMENT RETURN list_distance([1,2,3],[4,5,6])
++---- error
++Binder exception: LIST_DISTANCE requires argument type to be FLOAT[] or DOUBLE[].
++
++-STATEMENT RETURN list_distance([1.0,2.0,3.0],[4.0,5.0,6.0])
++---- 1
++5.196152
++
++-STATEMENT RETURN list_distance([1.0,NULL,3.0,4.0],[4.0,5.0,6.0])
++---- error
++Binder exception: LIST_DISTANCE requires both arguments to be in same size: left : 4 ; right : 3
++
++-STATEMENT RETURN list_distance(null,null)
++---- error
++Binder exception: Function LIST_DISTANCE did not receive correct arguments
++
++-STATEMENT RETURN list_distance(2,3,4,5)
++---- error
++Binder exception: Function LIST_DISTANCE did not receive correct arguments:
++Actual:   (INT64,INT64,INT64,INT64)
++Expected: (LIST,LIST) -> ANY
++
++-STATEMENT RETURN list_distance([1.5, 2.4, 3.3, 1.23, 4.56],[4.53,6.23,6.55,3.42,2.44])
++---- 1
++6.610809
++
++-CASE ListHasAny
++-STATEMENT RETURN list_has_any([1,2,3],[2,3,4])
++---- 1
++True
++
++-STATEMENT RETURN list_has_any([1,4,5],[2,3,6])
++---- 1
++False
++
++-STATEMENT RETURN list_has_any([1,2,3],['2','3','6'])
++---- error
++Binder exception: Cannot bind LIST_HAS_ANY with parameter type INT64[] and STRING[].
++
++-STATEMENT RETURN list_has_any(['2','3','4'],['2','3','6'])
++---- 1
++True
++
++-STATEMENT RETURN list_has_any([True,False,False],[False,False,True])
++---- 1
++True
++
++-STATEMENT RETURN list_has_any([1,2],[null])
++---- 1
++False
++
++-STATEMENT RETURN list_has_any([null,null],[null])
++---- 1
++False
++
++-STATEMENT RETURN list_has_any([{a: 3, b: 4}],[{b: 2, c: 3}, {a: 3, b: 4}])
++---- 1
++True
++
++-STATEMENT RETURN list_has_any([],[])
++---- 1
++False
++
++-STATEMENT RETURN list_has_any(null, [1,3,2])
++---- 1
++
++-STATEMENT RETURN list_has_any([1,2], null)
++---- 1
++
++-STATEMENT RETURN list_has_any(null, null)
++---- 1
++
++-CASE ListIntersect
++-STATEMENT RETURN list_intersect([1,2,3,4,5,5],[5,4,3,3,2,1])
++---- 1
++[5,4,3,2,1]
++
++-STATEMENT RETURN list_intersect([1,2,3,4,5,5],[])
++---- 1
++[]
++
++-STATEMENT RETURN list_intersect([1,2,3,4,5,5],[])
++---- 1
++[]
++
++-STATEMENT RETURN list_intersect([],[5,4,3,2,1])
++---- 1
++[]
++
++-STATEMENT RETURN list_intersect([],[])
++---- 1
++[]
++
++-STATEMENT RETURN list_intersect([null],[null,null])
++---- 1
++[]
++
++-STATEMENT RETURN list_intersect(['1','2','3','33','4'],['2','2','1','3','4'])
++---- 1
++[2,1,3,4]
++
++-STATEMENT RETURN list_intersect([{a: 44, b: 48}, {a: 45, b: 56}],[{a:44, b:48}])
++---- 1
++[{a: 44, b: 48}]
++
++-STATEMENT RETURN list_intersect([null, 1, 2, 4, 8],[null, 2, null, 3, null])
++---- 1
++[2]
++
++-STATEMENT RETURN list_intersect([true, false, true, false],[false])
++---- 1
++[False]
++
++-CASE ListSelect
++-STATEMENT RETURN list_select([1,2,3,4,5],[1,2,3])
++---- 1
++[1,2,3]
++
++-STATEMENT RETURN list_select(['s','t','d','u','e','f','~'],[2,2,3,4,5])
++---- 1
++[t,t,d,u,e]
++
++-STATEMENT RETURN list_select([1,2,3,4,5],[1.0,2.0,3.0,5.0])
++---- error
++Binder exception: LIST_SELECT expecting argument type: LIST of ANY, LIST of INT
++
++-STATEMENT RETURN list_select([[1],[2,3],[2,3,4],[1,2,3],[1]],[1,2,3,4,2,3,2])
++---- 1 
++[[1],[2,3],[2,3,4],[1,2,3],[2,3],[2,3,4],[2,3]]
++
++-STATEMENT Return list_select([1,2,3,4,5],[0,1,2,3,4,5,6])
++---- 1
++[,1,2,3,4,5,]
++
++-STATEMENT Return list_select([1,2,3,4,5],[null])
++---- 1
++[]
++
++-STATEMENT Return list_select([1,2,3,4,5],null)
++---- error
++Binder exception: Cannot bind LIST_INTERSECT with parameter type INT64[] and ANY.
++
++-STATEMENT Return list_select(null,[0,1,2,3,4,5])
++---- error
++Binder exception: LIST_SELECT expecting argument type: LIST of ANY, LIST of INT
++
++-STATEMENT RETURN list_select([{q:1, p:2},{q:2, p:3},{a: 3, q: 4}],[1,2,2,1])
++---- 1
++[{a: 1, q: 2},{a: 2, q: 3},{a: 2, q: 3},{a: 1, q: 2}]
++
++-STATEMENT RETURN list_select([1,2,3,4,5],[null, 2, null, 4, 5])
++---- 1
++[,2,,4,5]
++
++-CASE ListWhere
++-STATEMENT RETURN list_where([1,2,3,4,5],[true, false, true, true, false])
++---- 1
++[1,3,4]
++
++-STATEMENT RETURN list_where([{a:2, b:3},{a:3, b:5},{a:4, c:1},{a:21, u:33}],[true, false, true, true, false])
++---- 1
++[{a: 2, u: 3},{a: 4, u: 1},{a: 21, u: 33}]
++
++-STATEMENT RETURN list_where([1,2,3,4,null],[true, false, true, true, true])
++---- 1
++[1,3,4,]
++
++-STATEMENT RETURN list_where([1,2,3,4],[true, false, true])
++---- 1
++[1,3]
++
++-STATEMENT RETURN list_where([1,2,3,4],[true, false, true,false, true, true])
++---- 1
++[1,3,,]
++
++-STATEMENT RETURN list_where(['a','b','c','6','r'],[false, false, true,false, true])
++---- 1
++[c,r]
++
++-STATEMENT RETURN list_where(null,[false, false, true,false, true])
++---- error
++Binder exception: LIST_WHERE expecting argument type: LIST of ANY, LIST of BOOL
++
++-STATEMENT RETURN list_where([1,2,3,4],null)
++---- error
++Binder exception: Cannot bind LIST_INTERSECT with parameter type INT64[] and ANY.
++
++-STATEMENT RETURN list_where([1,2,3,4],[true, false, null, true])
++---- error
++Binder exception: NULLs are not allowed as list elements in the second input parameter.

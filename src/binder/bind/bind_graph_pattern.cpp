@@ -2,17 +2,20 @@
 #include "binder/expression/expression_util.h"
 #include "binder/expression/path_expression.h"
 #include "binder/expression/property_expression.h"
+#include "binder/expression/scalar_function_expression.h"
 #include "binder/expression_visitor.h"
 #include "catalog/catalog.h"
 #include "catalog/catalog_entry/node_table_catalog_entry.h"
 #include "catalog/catalog_entry/rel_group_catalog_entry.h"
+#include "catalog/catalog_entry/function_catalog_entry.h"
 #include "common/enums/rel_direction.h"
 #include "common/exception/binder.h"
 #include "common/string_format.h"
 #include "common/utils.h"
-#include "function/cast/functions/cast_from_string_functions.h"
 #include "function/gds/rec_joins.h"
+#include "function/built_in_function_utils.h"
 #include "function/rewrite_function.h"
+#include "function/scalar_function.h"
 #include "function/schema/vector_node_rel_functions.h"
 #include "main/client_context.h"
 #include "transaction/transaction.h"
@@ -56,6 +59,106 @@ QueryGraph Binder::bindPatternElement(const PatternElement& patternElement) {
         nodeAndRels.push_back(rel);
         nodeAndRels.push_back(rightNode);
         leftNode = rightNode;
+    }
+    if (clientContext->getClientConfig()->recursivePatternSemantic != common::PathSemantic::WALK) {
+        if (queryGraph.hasRecursiveRel()) {
+            // The only one recursive rel doesn't need to be handled because RecursiveJoin
+            // already implements path semantics. Like (a)-[b*2]-(c)
+            // What needs to be handled is the recursive
+            // rels with other nodes/rels. Like (a)-[b*2]-(c)-[d*2]-(e) or (a)-[b*2]-(c)-[d]-(e)
+            auto rels = queryGraph.getQueryRels();
+            if (rels.size() > 1) {
+                std::vector<LogicalType> childrenTypes;
+                binder::expression_vector childrenExpressions;
+                std::string funcName;
+                if (clientContext->getClientConfig()->recursivePatternSemantic ==
+                    common::PathSemantic::ACYCLIC) {
+                    auto nodes = queryGraph.getQueryNodes();
+                    for (uint32_t j = 0; j < nodes.size(); ++j) {
+                        childrenTypes.push_back(nodes[j]->getInternalID()->dataType.copy());
+                        childrenExpressions.push_back(nodes[j]->getInternalID());
+                    }
+                    for (uint32_t j = 0; j < rels.size(); ++j) {
+                        if (rels[j]->isRecursive()) {
+                            childrenTypes.push_back(rels[j]->dataType.copy());
+                            childrenExpressions.push_back(rels[j]);
+                        }
+                    }
+                    funcName = function::IsNodeDistinctFunction::name;
+                } else {
+                    for (uint32_t j = 0; j < rels.size(); ++j) {
+                        if (rels[j]->isRecursive()) {
+                            childrenTypes.push_back(rels[j]->dataType.copy());
+                            childrenExpressions.push_back(rels[j]);
+                        } else {
+                            childrenTypes.push_back(
+                                rels[j]->getInternalID()->dataType.copy());
+                            childrenExpressions.push_back(rels[j]->getInternalID());
+                        }
+                    }
+                    funcName = function::IsRelDistinctFunction::name;
+                }
+                auto catalog = Catalog::Get(*clientContext);
+                auto transaction = transaction::Transaction::Get(*clientContext);
+                auto functionEntry = catalog->getFunctionEntry(transaction, funcName);
+                auto function = function::BuiltInFunctionsUtils::matchFunction(funcName,
+                    childrenTypes, functionEntry->ptrCast<FunctionCatalogEntry>())
+                                    ->ptrCast<function::ScalarFunction>()
+                                    ->copy();
+                std::unique_ptr<function::FunctionBindData> bindData =
+                    std::make_unique<function::FunctionBindData>(
+                        LogicalType(function->returnTypeID));
+                auto uniqueExpressionName = binder::ScalarFunctionExpression::getUniqueName(
+                    function->name, childrenExpressions);
+                auto functionExpression = std::make_shared<binder::ScalarFunctionExpression>(
+                    ExpressionType::FUNCTION, std::move(function), std::move(bindData),
+                    childrenExpressions, uniqueExpressionName);
+                queryGraph.addSemanticExpression(functionExpression);
+            }
+        } else {
+            // not have recursive rel. Like: (a)-[b]-(c)-[d]-(e)
+            std::vector<LogicalType> childrenTypes;
+            binder::expression_vector childrenExpressions;
+            if (clientContext->getClientConfig()->recursivePatternSemantic ==
+                common::PathSemantic::ACYCLIC) {
+                auto nodes = queryGraph.getQueryNodes();
+                for (uint32_t j = 0; j < nodes.size(); ++j) {
+                    childrenTypes.push_back(nodes[j]->getInternalID()->dataType.copy());
+                    childrenExpressions.push_back(nodes[j]->getInternalID());
+                }
+            } else {
+                auto rels = queryGraph.getQueryRels();
+                for (uint32_t j = 0; j < rels.size(); ++j) {
+                    childrenTypes.push_back(rels[j]->getInternalID()->dataType.copy());
+                    childrenExpressions.push_back(rels[j]->getInternalID());
+                }
+            }
+            if (childrenExpressions.size() > 2) {
+                auto catalog = Catalog::Get(*clientContext);
+                auto transaction = transaction::Transaction::Get(*clientContext);
+                auto functionEntry =
+                    catalog->getFunctionEntry(transaction, function::IsIDDistinctFunction::name);
+                auto function = function::BuiltInFunctionsUtils::matchFunction(
+                    function::IsIDDistinctFunction::name, childrenTypes,
+                    functionEntry->ptrCast<FunctionCatalogEntry>())
+                                    ->ptrCast<function::ScalarFunction>()
+                                    ->copy();
+                std::unique_ptr<function::FunctionBindData> bindData =
+                    std::make_unique<function::FunctionBindData>(
+                        LogicalType(function->returnTypeID));
+                auto uniqueExpressionName = binder::ScalarFunctionExpression::getUniqueName(
+                    function->name, childrenExpressions);
+                auto functionExpression = std::make_shared<binder::ScalarFunctionExpression>(
+                    ExpressionType::FUNCTION, std::move(function), std::move(bindData),
+                    childrenExpressions, uniqueExpressionName);
+                queryGraph.addSemanticExpression(functionExpression);
+            } else if (childrenExpressions.size() == 2) {
+                // when only two children use no_equal
+                auto noEquals = expressionBinder.bindComparisonExpression(
+                    gorgonzola::common::ExpressionType::NOT_EQUALS, childrenExpressions);
+                queryGraph.addSemanticExpression(noEquals);
+            }
+        }
     }
     if (patternElement.hasPathName()) {
         auto pathName = patternElement.getPathName();
@@ -526,15 +629,21 @@ expression_vector Binder::bindRecursivePatternRelProjectionList(const RecursiveR
 std::pair<uint64_t, uint64_t> Binder::bindVariableLengthRelBound(const RelPattern& relPattern) {
     auto recursiveInfo = relPattern.getRecursiveInfo();
     uint32_t lowerBound = 0;
-    function::CastString::operation(
-        ku_string_t{recursiveInfo->lowerBound.c_str(), recursiveInfo->lowerBound.length()},
-        lowerBound);
+    auto boundLowerExpression = expressionBinder.bindExpression(*recursiveInfo->lowerBound);
+    if (boundLowerExpression->expressionType != ExpressionType::LITERAL &&
+        boundLowerExpression->expressionType != ExpressionType::PARAMETER) {
+        throw BinderException("Rel range lower bound must be a parameter/literal expression.");
+    }
+    lowerBound = ExpressionUtil::evaluateAsVariableLengthRelBound(*boundLowerExpression);
     auto maxDepth = clientContext->getClientConfig()->varLengthMaxDepth;
     auto upperBound = maxDepth;
-    if (!recursiveInfo->upperBound.empty()) {
-        function::CastString::operation(
-            ku_string_t{recursiveInfo->upperBound.c_str(), recursiveInfo->upperBound.length()},
-            upperBound);
+    if (recursiveInfo->upperBound.get()) {
+        auto boundUpperExpression = expressionBinder.bindExpression(*recursiveInfo->upperBound);
+        if (boundUpperExpression->expressionType != ExpressionType::LITERAL &&
+            boundUpperExpression->expressionType != ExpressionType::PARAMETER) {
+            throw BinderException("Rel range upper bound must be a parameter/literal expression.");
+        }
+        upperBound = ExpressionUtil::evaluateAsVariableLengthRelBound(*boundUpperExpression);
     }
     if (lowerBound > upperBound) {
         throw BinderException(stringFormat("Lower bound of rel {} is greater than upperBound.",

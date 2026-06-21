@@ -78,6 +78,7 @@ public:
     common::table_id_t getTableID() const { return nodeTableID; }
     std::vector<common::table_id_t> getTableIDs() const { return {nodeTableID}; }
 
+    void clearProperty() { properties.clear(); }
     binder::expression_vector getProperties() const { return properties; }
     void addProperty(std::shared_ptr<binder::Expression> expr) {
         properties.push_back(std::move(expr));

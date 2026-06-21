@@ -2,7 +2,6 @@ add_library(gorgonzola_function_path
         OBJECT
         length_function.cpp
         nodes_function.cpp
-        properties_function.cpp
         rels_function.cpp
         semantic_function.cpp)
 

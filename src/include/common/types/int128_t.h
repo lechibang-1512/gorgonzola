@@ -84,7 +84,7 @@ GORGONZOLA_API bool operator>=(const int128_t& lhs, const int128_t& rhs);
 GORGONZOLA_API bool operator<(const int128_t& lhs, const int128_t& rhs);
 GORGONZOLA_API bool operator<=(const int128_t& lhs, const int128_t& rhs);
 
-class Int128_t {
+class GORGONZOLA_API Int128_t {
 public:
     static std::string toString(int128_t input);
 

@@ -1,0 +1,281 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d3a0a078b50..f5f1ae0a5c5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -331,6 +331,12 @@ if (USE_STD_FORMAT)
+     add_compile_definitions(USE_STD_FORMAT)
+ endif()
+ 
++if (BUILD_EXTENSION_TESTS)
++    add_compile_definitions(__ALLOW_UNSIGNED_EXTENSION__)
++else()
++    add_compile_definitions(__ALLOW_UNSIGNED_EXTENSION__)
++endif()
++
+ function(add_kuzu_test TEST_NAME)
+     set(SRCS ${ARGN})
+     add_executable(${TEST_NAME} ${SRCS})
+@@ -430,6 +436,7 @@ endforeach()
+ 
+ if (${BUILD_TESTS} OR ${BUILD_EXTENSION_TESTS})
+     add_subdirectory(test)
++
+ elseif (${BUILD_BENCHMARK})
+     add_subdirectory(test/test_helper)
+ endif ()
+diff --git a/extension/fts/test/extension_signature_tests/empty.kuzu_extension b/extension/fts/test/extension_signature_tests/empty.kuzu_extension
+new file mode 100644
+index 00000000000..e69de29bb2d
+diff --git a/extension/fts/test/extension_signature_tests/libdelta.kuzu_extension b/extension/fts/test/extension_signature_tests/libdelta.kuzu_extension
+new file mode 100755
+index 00000000000..d1c9b9b65db
+Binary files /dev/null and b/extension/fts/test/extension_signature_tests/libdelta.kuzu_extension differ
+diff --git a/extension/fts/test/extension_signature_tests/with_signature.kuzu_extension b/extension/fts/test/extension_signature_tests/with_signature.kuzu_extension
+new file mode 100644
+index 00000000000..764a762521c
+Binary files /dev/null and b/extension/fts/test/extension_signature_tests/with_signature.kuzu_extension differ
+diff --git a/extension/fts/test/extension_signature_tests/wrong_signature.kuzu_extension b/extension/fts/test/extension_signature_tests/wrong_signature.kuzu_extension
+new file mode 100644
+index 00000000000..f1f074a8752
+Binary files /dev/null and b/extension/fts/test/extension_signature_tests/wrong_signature.kuzu_extension differ
+diff --git a/extension/fts/test/test_files/extension_signature.test b/extension/fts/test/test_files/extension_signature.test
+new file mode 100644
+index 00000000000..6b96ca74463
+--- /dev/null
++++ b/extension/fts/test/test_files/extension_signature.test
+@@ -0,0 +1,36 @@
++-DATASET CSV fts-basic
++
++--
++
++-CASE Basic
++-SKIP_STATIC_LINK
++-STATEMENT CALL ALLOW_UNSIGNED_EXTENSION = FALSE
++---- ok
++-STATEMENT LOAD EXTENSION '${GORGONZOLA_ROOT_DIRECTORY}/extension/fts/test/extension_signature_tests/with_signature.kuzu_extension'
++---- 1
++Extension: ${GORGONZOLA_ROOT_DIRECTORY}/extension/fts/test/extension_signature_tests/with_signature.kuzu_extension has been loaded.
++-STATEMENT LOAD EXTENSION '${GORGONZOLA_ROOT_DIRECTORY}/extension/fts/test/extension_signature_tests/wrong_signature.kuzu_extension'
++---- error
++Runtime exception: Failed to verify the extension signature.
++If you want to load unsigned extensions, please set allow_unsigned_extension=false.
++-STATEMENT LOAD EXTENSION '${GORGONZOLA_ROOT_DIRECTORY}/extension/fts/test/extension_signature_tests/libdelta.kuzu_extension'
++---- error
++Runtime exception: Failed to verify the extension signature.
++If you want to load unsigned extensions, please set allow_unsigned_extension=false.
++-STATEMENT LOAD EXTENSION '${GORGONZOLA_ROOT_DIRECTORY}/extension/fts/test/extension_signature_tests/empty.kuzu_extension'
++---- error
++Runtime exception: The file is too small to be a kuzu extension.
++-STATEMENT CALL CREATE_FTS_INDEX('Book', 'book_index', ['abstract', 'author', 'title'], stemmer := 'porter');
++---- ok
++-STATEMENT CALL QUERY_FTS_INDEX('Book', 'book_index', 'a quantum machine') RETURN node.title;
++---- 2
++The Quantum World
++Learning Machines
++
++-CASE AllowUnsignedExtension
++-SKIP_STATIC_LINK
++-STATEMENT CALL ALLOW_UNSIGNED_EXTENSION = TRUE
++---- ok
++-STATEMENT LOAD EXTENSION '${GORGONZOLA_ROOT_DIRECTORY}/extension/fts/build/libfts.kuzu_extension'
++---- ok
++
+diff --git a/src/extension/extension.cpp b/src/extension/extension.cpp
+index bf5e6d0f274..4b2f5be5457 100644
+--- a/src/extension/extension.cpp
++++ b/src/extension/extension.cpp
+@@ -1,6 +1,7 @@
+ #include "extension/extension.h"
+ 
+ #include "common/exception/io.h"
++#include "common/file_system/virtual_file_system.h"
+ #include "common/string_format.h"
+ #include "common/string_utils.h"
+ #include "common/system_message.h"
+diff --git a/src/extension/extension_manager.cpp b/src/extension/extension_manager.cpp
+index e033df69112..24274dc38c8 100644
+--- a/src/extension/extension_manager.cpp
++++ b/src/extension/extension_manager.cpp
+@@ -1,10 +1,13 @@
+ #include "extension/extension_manager.h"
+ 
+ #include "common/exception/binder.h"
++#include "common/exception/runtime.h"
+ #include "common/file_system/virtual_file_system.h"
+ #include "common/string_utils.h"
+ #include "extension/extension.h"
+ #include "generated_extension_loader.h"
++#include "mbedtls/pk.h"
++#include "mbedtls/sha256.h"
+ #include "storage/wal/local_wal.h"
+ 
+ namespace gorgonzola {
+@@ -19,6 +22,69 @@ static void executeExtensionLoader(main::ClientContext* context, const std::stri
+     }
+ }
+ 
++static std::string computeHashForExtensionToLoad(common::offset_t signatureOffset,
++    common::FileInfo* fileInfo) {
++    const auto maxLenChunks = 1024ULL * 1024ULL; // 1MB
++    const auto numChunks = (signatureOffset + maxLenChunks - 1) / maxLenChunks;
++    std::string hashResult;
++    hashResult.reserve(ExtensionManager::SHA256_LEN * numChunks);
++    std::string chunkBuffer;
++    chunkBuffer.resize(ExtensionManager::SHA256_LEN);
++    auto chunkData = std::make_unique<uint8_t[]>(maxLenChunks);
++    for (auto i = 0u; i < signatureOffset; i += maxLenChunks) {
++        auto numBytesToHash = std::min<uint64_t>(signatureOffset - i, maxLenChunks);
++        fileInfo->readFile(chunkData.get(), numBytesToHash);
++        mbedtls_sha256(chunkData.get(), numBytesToHash,
++            reinterpret_cast<unsigned char*>(chunkBuffer.data()), 0 /* SHA256 */);
++        hashResult += chunkBuffer;
++    }
++    std::string computedExtensionHash;
++    computedExtensionHash.resize(ExtensionManager::SHA256_LEN);
++    mbedtls_sha256(reinterpret_cast<const unsigned char*>(hashResult.data()), hashResult.length(),
++        reinterpret_cast<unsigned char*>(computedExtensionHash.data()), 0 /* SHA256 */);
++    return computedExtensionHash;
++}
++
++static void verifyByPublicKey(uint8_t* signature, const std::string& computedExtensionHash) {
++    mbedtls_pk_context pk_context;
++    mbedtls_pk_init(&pk_context);
++
++    mbedtls_pk_parse_public_key(&pk_context,
++        reinterpret_cast<const unsigned char*>(ExtensionManager::PUBLIC_KEY),
++        strlen(ExtensionManager::PUBLIC_KEY) + 1);
++    auto valid = mbedtls_pk_verify(&pk_context, MBEDTLS_MD_SHA256,
++                     reinterpret_cast<const unsigned char*>(computedExtensionHash.data()),
++                     computedExtensionHash.size(), signature,
++                     ExtensionManager::EXTENSION_SIGNATURE_LEN) == 0;
++    mbedtls_pk_free(&pk_context);
++    if (!valid) {
++        throw common::RuntimeException{
++            "Failed to verify the extension signature.\nIf you want to load unsigned extensions, "
++            "please set allow_unsigned_extension=false."};
++    }
++}
++
++static std::unique_ptr<uint8_t[]> getSignature(common::FileInfo* fileInfo,
++    common::offset_t signatureOffset) {
++    auto signatureBuffer = std::make_unique<uint8_t[]>(ExtensionManager::EXTENSION_SIGNATURE_LEN);
++    fileInfo->readFromFile(signatureBuffer.get(), ExtensionManager::EXTENSION_SIGNATURE_LEN,
++        signatureOffset);
++    return signatureBuffer;
++}
++
++static void validateSignature(main::ClientContext* context, const std::string& fullPath) {
++    auto fileInfo = common::VirtualFileSystem::GetUnsafe(*context)->openFile(fullPath,
++        common::FileOpenFlags(common::FileFlags::READ_ONLY), context);
++    auto fileSize = fileInfo->getFileSize();
++    if (ExtensionManager::EXTENSION_SIGNATURE_LEN >= fileSize) {
++        throw common::RuntimeException{"The file is too small to be a kuzu extension."};
++    }
++    auto signatureOffset = fileSize - ExtensionManager::EXTENSION_SIGNATURE_LEN;
++    auto signature = getSignature(fileInfo.get(), signatureOffset);
++    auto computedExtensionHash = computeHashForExtensionToLoad(signatureOffset, fileInfo.get());
++    verifyByPublicKey(signature.get(), computedExtensionHash);
++}
++
+ void ExtensionManager::loadExtension(const std::string& path, main::ClientContext* context) {
+     auto fullPath = path;
+     bool isOfficial = ExtensionUtils::isOfficialExtension(path);
+@@ -31,7 +97,9 @@ void ExtensionManager::loadExtension(const std::string& path, main::ClientContex
+         executeExtensionLoader(context, path);
+         fullPath = ExtensionUtils::getLocalPathForExtensionLib(context, path);
+     }
+-
++    if (!context->getClientConfig()->allowUnsignedExtension) {
++        validateSignature(context, path);
++    }
+     auto libLoader = ExtensionLibLoader(path, fullPath);
+     auto name = libLoader.getNameFunc();
+     std::string extensionName = (*name)();
+diff --git a/src/include/extension/extension_manager.h b/src/include/extension/extension_manager.h
+index ad4855dc424..996cf2553f5 100644
+--- a/src/include/extension/extension_manager.h
++++ b/src/include/extension/extension_manager.h
+@@ -13,6 +13,22 @@ struct ExtensionEntry {
+ };
+ 
+ class ExtensionManager {
++public:
++    static constexpr uint64_t EXTENSION_SIGNATURE_LEN = 256;
++
++    static constexpr uint64_t SHA256_LEN = 32;
++
++    static constexpr char PUBLIC_KEY[] =
++        "-----BEGIN PUBLIC KEY-----\n"
++        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhXoRMc6xWz1rFRd8vhbp\n"
++        "0dFxfnqdY91Nhn1jbf7k/DhASFXuh2BIF5FgwtkXd2L1JbJHYS0PHTgKvolv+OMH\n"
++        "yE217wMNGoeqbegwlMp5PIrUvmLCS+EIQ79zKMGg2tmQvZqj4rDNcYl9l26JShMM\n"
++        "qOfGDTjXjUhfeWVADwq2+XE3QY/iwW/hUn2uiU/t+MjmNXRiqMR68BjQbTtbvz1R\n"
++        "NWaWgdpq3q9jxeHCKIYGde8mqvGS5admQpL7my9NGnDRcz99E+12bB/PKPzeDi1l\n"
++        "I2FnyXhNE1QoMk9jeoPVY84AqGBX8r8qhdeCGEogP/s6bwFCQcD/ce9lYoydxJIl\n"
++        "lwIDAQAB\n"
++        "-----END PUBLIC KEY-----";
++
+ public:
+     void loadExtension(const std::string& path, main::ClientContext* context);
+ 
+diff --git a/src/include/main/client_config.h b/src/include/main/client_config.h
+index f2490356192..4796c820c0c 100644
+--- a/src/include/main/client_config.h
++++ b/src/include/main/client_config.h
+@@ -23,6 +23,11 @@ struct ClientConfigDefault {
+     static constexpr uint64_t WARNING_LIMIT = 8 * 1024;
+     static constexpr bool ENABLE_PLAN_OPTIMIZER = true;
+     static constexpr bool ENABLE_INTERNAL_CATALOG = false;
++#ifdef __ALLOW_UNSIGNED_EXTENSION__
++    static constexpr bool ALLOW_UNSIGNED_EXTENSION = true;
++#else
++    static constexpr bool ALLOW_UNSIGNED_EXTENSION = false;
++#endif
+ };
+ 
+ struct ClientConfig {
+@@ -57,6 +62,8 @@ struct ClientConfig {
+     bool enablePlanOptimizer = ClientConfigDefault::ENABLE_PLAN_OPTIMIZER;
+     // If use internal catalog during binding
+     bool enableInternalCatalog = ClientConfigDefault::ENABLE_INTERNAL_CATALOG;
++    // If allow unsigned extension
++    bool allowUnsignedExtension = ClientConfigDefault::ALLOW_UNSIGNED_EXTENSION;
+ };
+ 
+ } // namespace main
+diff --git a/src/include/main/settings.h b/src/include/main/settings.h
+index d55e27f9cd0..60275e92828 100644
+--- a/src/include/main/settings.h
++++ b/src/include/main/settings.h
+@@ -253,5 +253,17 @@ struct EnableInternalCatalogSetting {
+     }
+ };
+ 
++struct AllowUnsignedExtensionSetting {
++    static constexpr auto name = "allow_unsigned_extension";
++    static constexpr auto inputType = common::LogicalTypeID::BOOL;
++    static void setContext(ClientContext* context, const common::Value& parameter) {
++        parameter.validateType(inputType);
++        context->getClientConfigUnsafe()->allowUnsignedExtension = parameter.getValue<bool>();
++    }
++    static common::Value getSetting(const ClientContext* context) {
++        return common::Value::createValue(context->getClientConfig()->allowUnsignedExtension);
++    }
++};
++
+ } // namespace main
+ } // namespace gorgonzola
+diff --git a/src/main/db_config.cpp b/src/main/db_config.cpp
+index 5bad44e83da..7bd10c08b25 100644
+--- a/src/main/db_config.cpp
++++ b/src/main/db_config.cpp
+@@ -22,7 +22,8 @@ static ConfigurationOption options[] = { // NOLINT(cert-err58-cpp):
+     GET_CONFIGURATION(RecursivePatternFactorSetting), GET_CONFIGURATION(EnableMVCCSetting),
+     GET_CONFIGURATION(CheckpointThresholdSetting), GET_CONFIGURATION(AutoCheckpointSetting),
+     GET_CONFIGURATION(ForceCheckpointClosingDBSetting), GET_CONFIGURATION(SpillToDiskSetting),
+-    GET_CONFIGURATION(EnableOptimizerSetting), GET_CONFIGURATION(EnableInternalCatalogSetting)};
++    GET_CONFIGURATION(EnableOptimizerSetting), GET_CONFIGURATION(EnableInternalCatalogSetting),
++    GET_CONFIGURATION(AllowUnsignedExtensionSetting)};
+ 
+ DBConfig::DBConfig(const SystemConfig& systemConfig)
+     : bufferPoolSize{systemConfig.bufferPoolSize}, maxNumThreads{systemConfig.maxNumThreads},

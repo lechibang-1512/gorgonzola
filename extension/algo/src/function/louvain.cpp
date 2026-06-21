@@ -37,26 +37,27 @@ using namespace gorgonzola::function;
 namespace gorgonzola {
 namespace algo_extension {
 
-constexpr double THRESHOLD = 1e-6;
 constexpr offset_t UNASSIGNED_COMM = numeric_limits<offset_t>::max();
 
 struct LouvainOptionalParams final : public MaxIterationOptionalParams {
     OptionalParam<MaxPhases> maxPhases;
+    OptionalParam<Tolerance> tolerance;
 
     explicit LouvainOptionalParams(const expression_vector& optionalParams);
 
     // For copy only
     LouvainOptionalParams(OptionalParam<MaxIterations> maxIterations,
-        OptionalParam<MaxPhases> maxPhases)
-        : MaxIterationOptionalParams{maxIterations}, maxPhases{std::move(maxPhases)} {}
+        OptionalParam<MaxPhases> maxPhases, OptionalParam<Tolerance> tolerance)
+        : MaxIterationOptionalParams{maxIterations}, maxPhases{std::move(maxPhases)}, tolerance{std::move(tolerance)} {}
 
     void evaluateParams(main::ClientContext* context) override {
         MaxIterationOptionalParams::evaluateParams(context);
         maxPhases.evaluateParam(context);
+        tolerance.evaluateParam(context);
     }
 
     std::unique_ptr<function::OptionalParams> copy() override {
-        return std::make_unique<LouvainOptionalParams>(maxIterations, maxPhases);
+        return std::make_unique<LouvainOptionalParams>(maxIterations, maxPhases, tolerance);
     }
 };
 
@@ -68,6 +69,8 @@ LouvainOptionalParams::LouvainOptionalParams(const expression_vector& optionalPa
             maxPhases = function::OptionalParam<MaxPhases>(optionalParam);
         } else if (paramName == MaxIterations::NAME) {
             continue;
+        } else if (paramName == Tolerance::NAME) {
+            tolerance = function::OptionalParam<Tolerance>(optionalParam);
         } else {
             throw BinderException{"Unknown optional parameter: " + optionalParam->getAlias()};
         }
@@ -274,7 +277,8 @@ private:
 
 class RunIterationVC final : public InMemParallelCompute {
 public:
-    explicit RunIterationVC(PhaseState& state) : state{state} {}
+    explicit RunIterationVC(PhaseState& state, const double tolerance)
+        : state{state}, tolerance{tolerance} {}
     ~RunIterationVC() override = default;
 
     void parallelCompute(const offset_t startOffset, const offset_t endOffset,
@@ -381,7 +385,7 @@ public:
                                                       (newWeightedDegrees - prevWeightedDegrees);
                 // Both sides multiplied by 2*m to reduce constants.
                 const auto modGain = changeIntraWeights - changeSumWeightedDegrees;
-                if (modGain > newCommModGain || ((newCommModGain - modGain) < THRESHOLD &&
+                if (modGain > newCommModGain || ((newCommModGain - modGain) < tolerance &&
                                                     modGain != 0 && (nbrCommId < newComm))) {
                     // Move if gain is higher, or gain is the same, but nbrComm has a lower ID.
                     newCommModGain = modGain;
@@ -398,11 +402,12 @@ public:
     }
 
     std::unique_ptr<InMemParallelCompute> copy() override {
-        return std::make_unique<RunIterationVC>(state);
+        return std::make_unique<RunIterationVC>(state, tolerance);
     }
 
 private:
     PhaseState& state;
+    double tolerance;
 };
 
 class ComputeModularityVC final : public InMemParallelCompute {
@@ -512,9 +517,7 @@ void initInMemoryGraph(const table_id_t tableId, const offset_t numNodes, Graph*
         for (auto chunk : graph->scanBwd(nextNodeId, *scanState)) {
             chunk.forEach([&](auto neighbors, auto, auto i) {
                 auto nbrId = neighbors[i].offset;
-                if (nbrId != nodeId) {
-                    state.insertNbr(nodeId, nbrId);
-                }
+                state.insertNbr(nodeId, nbrId);
             });
         }
     }
@@ -608,7 +611,7 @@ static common::offset_t tableFunc(const TableFuncInput& input, TableFuncOutput&)
             // For each node, try to find a neighbor community such that moving the node to that
             // community increases the graph modularity. Note that the new community assignments are
             // sensitive to the order in which the nodes are processed.
-            RunIterationVC runIteration(state);
+            RunIterationVC runIteration(state, config.tolerance.getParamVal());
             InMemGDSUtils::runParallelCompute(runIteration, state.graph.numNodes, input.context);
 
             progressBar->updateProgress(input.context->queryID, progress * 0.5);
@@ -623,7 +626,7 @@ static common::offset_t tableFunc(const TableFuncInput& input, TableFuncOutput&)
                 sumIntraWeights.load() * state.modularityConstant -
                 (sumWeightedDegrees.load() * state.modularityConstant * state.modularityConstant);
 
-            if (currMod - oldMod < THRESHOLD) {
+            if (currMod - oldMod < config.tolerance) {
                 // The community assignments in `currComm` don't increase the modularity. The
                 // assignments in `acceptedComm` are the final assignments for this phase.
                 break;

@@ -1,0 +1,426 @@
+diff --git a/src/function/function_collection.cpp b/src/function/function_collection.cpp
+index f54cd664496..f3192addf38 100644
+--- a/src/function/function_collection.cpp
++++ b/src/function/function_collection.cpp
+@@ -196,9 +196,8 @@ FunctionCollection* FunctionCollection::getFunctions() {
+ 
+         // Path functions
+         SCALAR_FUNCTION(NodesFunction), SCALAR_FUNCTION(RelsFunction),
+-        SCALAR_FUNCTION_ALIAS(RelationshipsFunction), SCALAR_FUNCTION(PropertiesFunction),
+-        SCALAR_FUNCTION(IsTrailFunction), SCALAR_FUNCTION(IsACyclicFunction),
+-        REWRITE_FUNCTION(LengthFunction),
++        SCALAR_FUNCTION_ALIAS(RelationshipsFunction), SCALAR_FUNCTION(IsTrailFunction),
++        SCALAR_FUNCTION(IsACyclicFunction), REWRITE_FUNCTION(LengthFunction),
+ 
+         // Hash functions
+         SCALAR_FUNCTION(MD5Function), SCALAR_FUNCTION(SHA256Function),
+@@ -208,7 +207,7 @@ FunctionCollection* FunctionCollection::getFunctions() {
+         SCALAR_FUNCTION(CoalesceFunction), SCALAR_FUNCTION(IfNullFunction),
+         SCALAR_FUNCTION(ConstantOrNullFunction), SCALAR_FUNCTION(CountIfFunction),
+         SCALAR_FUNCTION(ErrorFunction), REWRITE_FUNCTION(NullIfFunction),
+-        SCALAR_FUNCTION(TypeOfFunction),
++        SCALAR_FUNCTION(TypeOfFunction), SCALAR_FUNCTION(PropertiesFunctions),
+ 
+         // Sequence functions
+         SCALAR_FUNCTION(CurrValFunction), SCALAR_FUNCTION(NextValFunction),
+diff --git a/src/function/path/CMakeLists.txt b/src/function/path/CMakeLists.txt
+index b179e2e8c3c..eb7fd44716a 100644
+--- a/src/function/path/CMakeLists.txt
++++ b/src/function/path/CMakeLists.txt
+@@ -2,7 +2,6 @@ add_library(kuzu_function_path
+         OBJECT
+         length_function.cpp
+         nodes_function.cpp
+-        properties_function.cpp
+         rels_function.cpp
+         semantic_function.cpp)
+ 
+diff --git a/src/function/path/properties_function.cpp b/src/function/path/properties_function.cpp
+deleted file mode 100644
+index 409f021ac22..00000000000
+--- a/src/function/path/properties_function.cpp
++++ /dev/null
+@@ -1,71 +0,0 @@
+-#include "binder/expression/literal_expression.h"
+-#include "common/exception/binder.h"
+-#include "common/string_format.h"
+-#include "common/vector/value_vector.h"
+-#include "function/path/vector_path_functions.h"
+-#include "function/scalar_function.h"
+-
+-using namespace gorgonzola::common;
+-using namespace gorgonzola::binder;
+-
+-namespace gorgonzola {
+-namespace function {
+-
+-static std::unique_ptr<FunctionBindData> bindFunc(const ScalarBindFuncInput& input) {
+-    if (input.arguments[1]->expressionType != ExpressionType::LITERAL) {
+-        throw BinderException(stringFormat(
+-            "Expected literal input as the second argument for {}().", PropertiesFunction::name));
+-    }
+-    auto literalExpr = input.arguments[1]->constPtrCast<LiteralExpression>();
+-    auto key = literalExpr->getValue().getValue<std::string>();
+-    const auto& listType = input.arguments[0]->getDataType();
+-    const auto& childType = ListType::getChildType(listType);
+-    struct_field_idx_t fieldIdx = 0;
+-    if (childType.getLogicalTypeID() == LogicalTypeID::NODE ||
+-        childType.getLogicalTypeID() == LogicalTypeID::REL) {
+-        fieldIdx = StructType::getFieldIdx(childType, key);
+-        if (fieldIdx == INVALID_STRUCT_FIELD_IDX) {
+-            throw BinderException(stringFormat("Invalid property name: {}.", key));
+-        }
+-    } else {
+-        throw BinderException(
+-            stringFormat("Cannot extract properties from {}.", listType.toString()));
+-    }
+-    const auto& field = StructType::getField(childType, fieldIdx);
+-    auto returnType = LogicalType::LIST(field.getType().copy());
+-    auto bindData = std::make_unique<PropertiesBindData>(std::move(returnType), fieldIdx);
+-    bindData->paramTypes.push_back(input.arguments[0]->getDataType().copy());
+-    bindData->paramTypes.push_back(LogicalType(input.definition->parameterTypeIDs[1]));
+-    return bindData;
+-}
+-
+-static void compileFunc(FunctionBindData* bindData,
+-    const std::vector<std::shared_ptr<ValueVector>>& parameters,
+-    std::shared_ptr<ValueVector>& result) {
+-    KU_ASSERT(parameters[0]->dataType.getPhysicalType() == PhysicalTypeID::LIST);
+-    auto& propertiesBindData = bindData->cast<PropertiesBindData>();
+-    auto fieldVector = StructVector::getFieldVector(ListVector::getDataVector(parameters[0].get()),
+-        propertiesBindData.childIdx);
+-    ListVector::setDataVector(result.get(), fieldVector);
+-}
+-
+-static void execFunc(const std::vector<std::shared_ptr<common::ValueVector>>& parameters,
+-    const std::vector<common::SelectionVector*>& parameterSelVectors, common::ValueVector& result,
+-    common::SelectionVector* resultSelVector, void* /*dataPtr*/) {
+-    ListVector::copyListEntryAndBufferMetaData(result, *resultSelVector, *parameters[0],
+-        *parameterSelVectors[0]);
+-}
+-
+-function_set PropertiesFunction::getFunctionSet() {
+-    function_set functions;
+-    auto function = std::make_unique<ScalarFunction>(name,
+-        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::STRING}, LogicalTypeID::ANY,
+-        execFunc);
+-    function->bindFunc = bindFunc;
+-    function->compileFunc = compileFunc;
+-    functions.push_back(std::move(function));
+-    return functions;
+-}
+-
+-} // namespace function
+-} // namespace gorgonzola
+diff --git a/src/function/utility/CMakeLists.txt b/src/function/utility/CMakeLists.txt
+index cae7823c7cd..2456ca087fb 100644
+--- a/src/function/utility/CMakeLists.txt
++++ b/src/function/utility/CMakeLists.txt
+@@ -7,7 +7,8 @@ add_library(kuzu_utility_function
+         count_if.cpp
+         error.cpp
+         nullif.cpp
+-        typeof.cpp)
++        typeof.cpp
++        properties.cpp)
+ 
+ set(ALL_OBJECT_FILES
+         ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:kuzu_utility_function>
+diff --git a/src/function/utility/properties.cpp b/src/function/utility/properties.cpp
+new file mode 100644
+index 00000000000..7d06c0efdf3
+--- /dev/null
++++ b/src/function/utility/properties.cpp
+@@ -0,0 +1,124 @@
++#include "binder/expression/literal_expression.h"
++#include "binder/expression_binder.h"
++#include "common/exception/binder.h"
++#include "common/string_format.h"
++#include "common/vector/value_vector.h"
++#include "function/scalar_function.h"
++#include "function/utility/vector_utility_functions.h"
++
++using namespace gorgonzola::common;
++using namespace gorgonzola::binder;
++using namespace gorgonzola::catalog;
++
++namespace gorgonzola {
++namespace function {
++
++static std::unique_ptr<FunctionBindData> bindStructFunc(const ScalarBindFuncInput& input) {
++    std::vector<StructField> fields;
++    const auto& structType = input.arguments[0]->getDataType();
++    auto keys = StructType::getFieldNames(structType);
++    std::vector<common::idx_t> fieldIdxs;
++    for (auto& key : keys) {
++        if (key == InternalKeyword::ID || key == InternalKeyword::LABEL ||
++            key == InternalKeyword::SRC || key == InternalKeyword::DST) {
++            continue;
++        }
++        auto fieldIdx = StructType::getFieldIdx(structType, key);
++        auto fieldType = StructType::getField(structType, fieldIdx).getType().copy();
++        if (fieldIdx == INVALID_STRUCT_FIELD_IDX) {
++            throw BinderException(stringFormat("Invalid struct field name: {}.", key));
++        }
++        fieldIdxs.push_back(fieldIdx);
++        fields.emplace_back(key, std::move(fieldType));
++    }
++    const auto resultType = LogicalType::STRUCT(std::move(fields));
++    auto bindData = std::make_unique<StructPropertiesBindData>(resultType.copy(), fieldIdxs);
++    bindData->paramTypes.push_back(input.arguments[0]->getDataType().copy());
++    return bindData;
++}
++
++static void compileStructFunc(FunctionBindData* bindData,
++    const std::vector<std::shared_ptr<ValueVector>>& parameters,
++    std::shared_ptr<ValueVector>& result) {
++    auto& propertiesBindData = bindData->cast<StructPropertiesBindData>();
++    std::vector<std::shared_ptr<ValueVector>> fieldVectors;
++    for (auto fieldIdx : propertiesBindData.childIdxs) {
++        auto fieldVector = StructVector::getFieldVector(parameters[0].get(), fieldIdx);
++        fieldVectors.push_back(fieldVector);
++    }
++    for (auto i = 0u; i < fieldVectors.size(); ++i) {
++        StructVector::referenceVector(result.get(), i, fieldVectors[i]);
++    }
++}
++
++static std::unique_ptr<FunctionBindData> bindPathFunc(const ScalarBindFuncInput& input) {
++    if (input.arguments[1]->expressionType != ExpressionType::LITERAL) {
++        throw BinderException(stringFormat(
++            "Expected literal input as the second argument for {}().", PropertiesFunctions::name));
++    }
++    auto literalExpr = input.arguments[1]->constPtrCast<LiteralExpression>();
++    auto key = literalExpr->getValue().getValue<std::string>();
++    const auto& listType = input.arguments[0]->getDataType();
++    const auto& childType = ListType::getChildType(listType);
++    struct_field_idx_t fieldIdx = 0;
++    if (childType.getLogicalTypeID() == LogicalTypeID::NODE ||
++        childType.getLogicalTypeID() == LogicalTypeID::REL) {
++        fieldIdx = StructType::getFieldIdx(childType, key);
++        if (fieldIdx == INVALID_STRUCT_FIELD_IDX) {
++            throw BinderException(stringFormat("Invalid property name: {}.", key));
++        }
++    } else {
++        throw BinderException(
++            stringFormat("Cannot extract properties from {}.", listType.toString()));
++    }
++    const auto& field = StructType::getField(childType, fieldIdx);
++    auto returnType = LogicalType::LIST(field.getType().copy());
++    auto bindData = std::make_unique<PathPropertiesBindData>(std::move(returnType), fieldIdx);
++    bindData->paramTypes.push_back(input.arguments[0]->getDataType().copy());
++    bindData->paramTypes.push_back(LogicalType(input.definition->parameterTypeIDs[1]));
++    return bindData;
++}
++
++static void compilePathFunc(FunctionBindData* bindData,
++    const std::vector<std::shared_ptr<ValueVector>>& parameters,
++    std::shared_ptr<ValueVector>& result) {
++    KU_ASSERT(parameters[0]->dataType.getPhysicalType() == PhysicalTypeID::LIST);
++    auto& propertiesBindData = bindData->cast<PathPropertiesBindData>();
++    auto fieldVector = StructVector::getFieldVector(ListVector::getDataVector(parameters[0].get()),
++        propertiesBindData.childIdx);
++    ListVector::setDataVector(result.get(), fieldVector);
++}
++
++static void execPathFunc(const std::vector<std::shared_ptr<common::ValueVector>>& parameters,
++    const std::vector<common::SelectionVector*>& parameterSelVectors, common::ValueVector& result,
++    common::SelectionVector* resultSelVector, void* /*dataPtr*/) {
++    ListVector::copyListEntryAndBufferMetaData(result, *resultSelVector, *parameters[0],
++        *parameterSelVectors[0]);
++}
++
++static std::unique_ptr<Function> getStructPropertiesFunction(LogicalTypeID logicalTypeID) {
++    auto function = std::make_unique<ScalarFunction>(PropertiesFunctions::name,
++        std::vector<LogicalTypeID>{logicalTypeID}, LogicalTypeID::STRUCT);
++    function->bindFunc = bindStructFunc;
++    function->compileFunc = compileStructFunc;
++    return function;
++}
++
++function_set PropertiesFunctions::getFunctionSet() {
++    function_set functions;
++    auto inputTypeIDs = // PROPERTIES(STRUCT)
++        std::vector<LogicalTypeID>{LogicalTypeID::STRUCT, LogicalTypeID::NODE, LogicalTypeID::REL};
++    for (auto inputTypeID : inputTypeIDs) {
++        functions.push_back(getStructPropertiesFunction(inputTypeID));
++    }
++    auto function = std::make_unique<ScalarFunction>(name, // PROPERTIES(PATH)
++        std::vector<LogicalTypeID>{LogicalTypeID::LIST, LogicalTypeID::STRING}, LogicalTypeID::ANY,
++        execPathFunc);
++    function->bindFunc = bindPathFunc;
++    function->compileFunc = compilePathFunc;
++    functions.push_back(std::move(function));
++    return functions;
++}
++
++} // namespace function
++} // namespace gorgonzola
+diff --git a/src/include/function/path/vector_path_functions.h b/src/include/function/path/vector_path_functions.h
+index a566e36e8bb..f6dfb900c88 100644
+--- a/src/include/function/path/vector_path_functions.h
++++ b/src/include/function/path/vector_path_functions.h
+@@ -23,23 +23,6 @@ struct RelationshipsFunction {
+     static constexpr const char* name = "RELATIONSHIPS";
+ };
+ 
+-struct PropertiesBindData : public FunctionBindData {
+-    common::idx_t childIdx;
+-
+-    PropertiesBindData(common::LogicalType dataType, common::idx_t childIdx)
+-        : FunctionBindData{std::move(dataType)}, childIdx{childIdx} {}
+-
+-    inline std::unique_ptr<FunctionBindData> copy() const override {
+-        return std::make_unique<PropertiesBindData>(resultType.copy(), childIdx);
+-    }
+-};
+-
+-struct PropertiesFunction {
+-    static constexpr const char* name = "PROPERTIES";
+-
+-    static function_set getFunctionSet();
+-};
+-
+ struct IsTrailFunction {
+     static constexpr const char* name = "IS_TRAIL";
+ 
+diff --git a/src/include/function/utility/vector_utility_functions.h b/src/include/function/utility/vector_utility_functions.h
+index c70d0c1e111..9704e7bb96a 100644
+--- a/src/include/function/utility/vector_utility_functions.h
++++ b/src/include/function/utility/vector_utility_functions.h
+@@ -47,5 +47,33 @@ struct TypeOfFunction {
+     static function_set getFunctionSet();
+ };
+ 
++struct PathPropertiesBindData : public FunctionBindData {
++    common::idx_t childIdx;
++
++    PathPropertiesBindData(common::LogicalType dataType, common::idx_t childIdx)
++        : FunctionBindData{std::move(dataType)}, childIdx{childIdx} {}
++
++    inline std::unique_ptr<FunctionBindData> copy() const override {
++        return std::make_unique<PathPropertiesBindData>(resultType.copy(), childIdx);
++    }
++};
++
++struct StructPropertiesBindData : public FunctionBindData {
++    std::vector<common::idx_t> childIdxs;
++
++    StructPropertiesBindData(common::LogicalType dataType, std::vector<common::idx_t> childIdxs)
++        : FunctionBindData{std::move(dataType)}, childIdxs{std::move(childIdxs)} {}
++
++    std::unique_ptr<FunctionBindData> copy() const override {
++        return std::make_unique<StructPropertiesBindData>(resultType.copy(), childIdxs);
++    }
++};
++
++struct PropertiesFunctions {
++    static constexpr const char* name = "PROPERTIES";
++
++    static function_set getFunctionSet();
++};
++
+ } // namespace function
+ } // namespace gorgonzola
+diff --git a/test/test_files/function/struct.test b/test/test_files/function/struct.test
+index 50d72c315f7..8c7e9c8a89d 100644
+--- a/test/test_files/function/struct.test
++++ b/test/test_files/function/struct.test
+@@ -34,6 +34,13 @@ C
+ [name,length,note,description,content,audience,grade]
+ [name,length,note,description,content,audience,grade]
+ 
++-LOG PropertiesSingleNodeLabel
++-STATEMENT MATCH (p:movies) RETURN PROPERTIES(p)
++---- 3
++{name: Roma, length: 298, note: the movie is very interesting and funny, description: {rating: 1223.000000, stars: 100, views: 10003, release: 2011-02-11 16:44:22, release_ns: 2011-02-11 16:44:22.123456, release_ms: 2011-02-11 16:44:22.123, release_sec: 2011-02-11 16:44:22, release_tz: 2011-02-11 16:44:22.123456+00, film: 2013-02-22, u8: 1, u16: 15, u32: 200, u64: 4, hugedata: -15}, content: pure ascii characters, audience: {}, grade: 254.000000}
++{name: Sóló cón tu párejâ, length: 126, note:  this is a very very good movie, description: {rating: 5.300000, stars: 2, views: 152, release: 2011-08-20 11:25:30, release_ns: 2011-08-20 11:25:30.123456, release_ms: 2011-08-20 11:25:30.123, release_sec: 2011-08-20 11:25:30, release_tz: 2011-08-20 11:25:30.123456+00, film: 2012-05-11, u8: 220, u16: 20, u32: 1, u64: 180, hugedata: 1844674407370955161811111111}, content: \xAA\xABinteresting\x0B, audience: {audience1=52, audience53=42}, grade: True}
++{name: The 😂😃🧘🏻‍♂️🌍🌦️🍞🚗 movie, length: 2544, note:  the movie is very very good, description: {rating: 7.000000, stars: 10, views: 982, release: 2018-11-13 13:33:11, release_ns: 2018-11-13 13:33:11.123456, release_ms: 2018-11-13 13:33:11.123, release_sec: 2018-11-13 13:33:11, release_tz: 2018-11-13 13:33:11.123456+00, film: 2014-09-12, u8: 12, u16: 120, u32: 55, u64: 1, hugedata: -1844674407370955161511}, content: \xAB\xCD, audience: {audience1=33}, grade: 8.989000}
++
+ -LOG KeysMultiNodeLabel
+ -STATEMENT MATCH (p:person:organisation) RETURN keys(p)
+ ---- 11
+@@ -49,6 +56,21 @@ C
+ [ID,fName,gender,isStudent,isWorker,age,eyeSight,birthdate,registerTime,lastJobDuration,workedHours,usedNames,courseScoresPerTerm,grades,height,u,name,orgCode,mark,score,history,licenseValidInterval,rating,state,info]
+ [ID,fName,gender,isStudent,isWorker,age,eyeSight,birthdate,registerTime,lastJobDuration,workedHours,usedNames,courseScoresPerTerm,grades,height,u,name,orgCode,mark,score,history,licenseValidInterval,rating,state,info]
+ 
++-LOG PropertiesMultiNodeLabel
++-STATEMENT MATCH (p:person:organisation) RETURN PROPERTIES(p)
++---- 11
++{ID: 0, fName: Alice, gender: 1, isStudent: True, isWorker: False, age: 35, eyeSight: 5.000000, birthdate: 1900-01-01, registerTime: 2011-08-20 11:25:30, lastJobDuration: 3 years 2 days 13:02:00, workedHours: [10,5], usedNames: [Aida], courseScoresPerTerm: [[10,8],[6,7,8]], grades: [96,54,86,92], height: 1.731000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 1, fName: , gender: , isStudent: , isWorker: , age: , eyeSight: , birthdate: , registerTime: , lastJobDuration: , workedHours: , usedNames: , courseScoresPerTerm: , grades: , height: , u: , name: ABFsUni, orgCode: 325, mark: 3.700000, score: -2, history: 10 years 5 months 13 hours 24 us, licenseValidInterval: 3 years 5 days, rating: 1.000000, state: {revenue: 138, location: ['toronto','montr,eal'], stock: {price: [96,56], volume: 1000}}, info: 3.120000}
++{ID: 10, fName: Hubert Blaine Wolfeschlegelsteinhausenbergerdorff, gender: 2, isStudent: False, isWorker: True, age: 83, eyeSight: 4.900000, birthdate: 1990-11-27, registerTime: 2023-02-21 13:25:30, lastJobDuration: 3 years 2 days 13:02:00, workedHours: [10,11,12,3,4,5,6,7], usedNames: [Ad,De,Hi,Kye,Orlan], courseScoresPerTerm: [[7],[10],[6,7]], grades: [77,64,100,54], height: 1.323000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a18, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 2, fName: Bob, gender: 2, isStudent: True, isWorker: False, age: 30, eyeSight: 5.100000, birthdate: 1900-01-01, registerTime: 2008-11-03 15:25:30.000526, lastJobDuration: 10 years 5 months 13:00:00.000024, workedHours: [12,8], usedNames: [Bobby], courseScoresPerTerm: [[8,9],[9,10]], grades: [98,42,93,88], height: 0.990000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 3, fName: Carol, gender: 1, isStudent: False, isWorker: True, age: 45, eyeSight: 5.000000, birthdate: 1940-06-22, registerTime: 1911-08-20 02:32:21, lastJobDuration: 48:24:11, workedHours: [4,5], usedNames: [Carmen,Fred], courseScoresPerTerm: [[8,10]], grades: [91,75,21,95], height: 1.000000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 4, fName: , gender: , isStudent: , isWorker: , age: , eyeSight: , birthdate: , registerTime: , lastJobDuration: , workedHours: , usedNames: , courseScoresPerTerm: , grades: , height: , u: , name: CsWork, orgCode: 934, mark: 4.100000, score: -100, history: 2 years 4 days 10 hours, licenseValidInterval: 26 years 52 days 48:00:00, rating: 0.780000, state: {revenue: 152, location: ["vanco,uver north area"], stock: {price: [15,78,671], volume: 432}}, info: abcd}
++{ID: 5, fName: Dan, gender: 2, isStudent: False, isWorker: True, age: 20, eyeSight: 4.800000, birthdate: 1950-07-23, registerTime: 2031-11-30 12:25:30, lastJobDuration: 10 years 5 months 13:00:00.000024, workedHours: [1,9], usedNames: [Wolfeschlegelstein,Daniel], courseScoresPerTerm: [[7,4],[8,8],[9]], grades: [76,88,99,89], height: 1.300000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a14, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 6, fName: , gender: , isStudent: , isWorker: , age: , eyeSight: , birthdate: , registerTime: , lastJobDuration: , workedHours: , usedNames: , courseScoresPerTerm: , grades: , height: , u: , name: DEsWork, orgCode: 824, mark: 4.100000, score: 7, history: 2 years 4 hours 22 us 34 minutes, licenseValidInterval: 82:00:00.1, rating: 0.520000, state: {revenue: 558, location: ['very long city name','new york'], stock: {price: [22], volume: 99}}, info: 2023-12-15}
++{ID: 7, fName: Elizabeth, gender: 1, isStudent: False, isWorker: True, age: 20, eyeSight: 4.700000, birthdate: 1980-10-26, registerTime: 1976-12-23 11:21:42, lastJobDuration: 48:24:11, workedHours: [2], usedNames: [Ein], courseScoresPerTerm: [[6],[7],[8]], grades: [96,59,65,88], height: 1.463000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a15, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 8, fName: Farooq, gender: 2, isStudent: True, isWorker: False, age: 25, eyeSight: 4.500000, birthdate: 1980-10-26, registerTime: 1972-07-31 13:22:30.678559, lastJobDuration: 00:18:00.024, workedHours: [3,4,5,6,7], usedNames: [Fesdwe], courseScoresPerTerm: [[8]], grades: [80,78,34,83], height: 1.510000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a16, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++{ID: 9, fName: Greg, gender: 2, isStudent: False, isWorker: False, age: 40, eyeSight: 4.900000, birthdate: 1980-10-26, registerTime: 1976-12-23 04:41:42, lastJobDuration: 10 years 5 months 13:00:00.000024, workedHours: [1], usedNames: [Grad], courseScoresPerTerm: [[10]], grades: [43,83,67,43], height: 1.600000, u: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a17, name: , orgCode: , mark: , score: , history: , licenseValidInterval: , rating: , state: , info: }
++
+ -LOG KeysSingleRelLabel
+ -STATEMENT MATCH (p:person)-[e:knows]->(:person) RETURN keys(e)
+ ---- 14
+@@ -67,6 +89,24 @@ C
+ [date,meetTime,validInterval,comments,summary,notes,someMap]
+ [date,meetTime,validInterval,comments,summary,notes,someMap]
+ 
++-LOG PropertiesSingleRelLabel
++-STATEMENT MATCH (p:person)-[e:knows]->(:person) RETURN PROPERTIES(e)
++---- 14
++{date: 2021-06-30, meetTime: 1986-10-21 21:08:31.521, validInterval: 10 years 5 months 13:00:00.000024, comments: [rnme,m8sihsdnf2990nfiwf], summary: {locations: ['toronto','waterloo'], transfer: {day: 2021-01-02, amount: [100,200]}}, notes: 1, someMap: {a=b}}
++{date: 2021-06-30, meetTime: 1946-08-25 19:07:22, validInterval: 20 years 30 days 48:00:00, comments: [njnojppo9u0jkmf,fjiojioh9h9h89hph], summary: {locations: , transfer: }, notes: 2020-10-10, someMap: {c=d, e=f, 1=2}}
++{date: 2021-06-30, meetTime: 2012-12-11 20:07:22, validInterval: 10 days, comments: [ioji232,jifhe8w99u43434], summary: {locations: ['shanghai'], transfer: {day: 1990-09-10, amount: [10]}}, notes: nice weather, someMap: }
++{date: 2021-06-30, meetTime: 1946-08-25 19:07:22, validInterval: 10 years 5 months 13:00:00.000024, comments: [2huh9y89fsfw23,23nsihufhw723], summary: {locations: ['paris'], transfer: {day: 2000-01-01, amount: [20,5000]}}, notes: 4, someMap: }
++{date: 1950-05-14, meetTime: 1946-08-25 19:07:22, validInterval: 00:23:00, comments: [fwehu9h9832wewew,23u9h989sdfsss], summary: {locations: ['paris'], transfer: {day: 2011-05-01, amount: [2000,5340]}}, notes: cool stuff found, someMap: }
++{date: 1950-05-14, meetTime: 2012-12-11 20:07:22, validInterval: 20 years 30 days 48:00:00, comments: [fwh9y81232uisuiehuf,ewnuihxy8dyf232], summary: {locations: ['vancouver'], transfer: {day: 2020-01-01, amount: [120,50]}}, notes: matthew perry, someMap: }
++{date: 2021-06-30, meetTime: 2002-07-31 11:42:53.12342, validInterval: 40 days 30:00:00, comments: [fnioh8323aeweae34d,osd89e2ejshuih12], summary: {locations: ['london','toronto'], transfer: {day: 2012-11-21, amount: [223,5230]}}, notes: 10, someMap: }
++{date: 1950-05-14, meetTime: 2007-02-12 12:11:42.123, validInterval: 00:28:00.03, comments: [fwh983-sdjisdfji,ioh89y32r2huir], summary: {locations: ['paris','beijing'], transfer: {day: 2011-03-11, amount: [2323,50]}}, notes: 1, someMap: }
++{date: 2000-01-01, meetTime: 1998-10-02 13:09:22.423, validInterval: 00:00:00.3, comments: [psh989823oaaioe,nuiuah1nosndfisf], summary: {locations: [], transfer: {day: 1980-11-21, amount: [20,5]}}, notes: 2, someMap: }
++{date: 2021-06-30, meetTime: 1936-11-02 11:02:01, validInterval: 00:00:00.00048, comments: [fwewe], summary: {locations: ['shanghai','nanjing'], transfer: {day: 1998-11-12, amount: [22,53240]}}, notes: 15, someMap: }
++{date: 1950-05-14, meetTime: 1982-11-11 13:12:05.123, validInterval: 00:23:00, comments: [fewh9182912e3,h9y8y89soidfsf,nuhudf78w78efw,hioshe0f9023sdsd], summary: {locations: ['paris'], transfer: {day: 2000-01-01, amount: [20,5000]}}, notes: happy new year, someMap: }
++{date: 2000-01-01, meetTime: 1999-04-21 15:12:11.42, validInterval: 48:00:00.052, comments: [23h9sdslnfowhu2932,shuhf98922323sf], summary: {locations: ['paris'], transfer: {day: 2000-01-01, amount: [20,5000]}}, notes: 4, someMap: }
++{date: 1905-12-12, meetTime: 2025-01-01 11:22:33.52, validInterval: 00:47:58, comments: [ahu2333333333333,12weeeeeeeeeeeeeeeeee], summary: {locations: ['toronto','thisisalongcityname'], transfer: {day: 1930-11-22, amount: [18,323]}}, notes: 8, someMap: }
++{date: 1905-12-12, meetTime: 2020-03-01 12:11:41.6552, validInterval: 00:47:58, comments: [peweeeeeeeeeeeeeeeee,kowje9w0eweeeeeeeee], summary: {locations: ['waterloo'], transfer: {day: 2000-01-01, amount: [1000,5000]}}, notes: 10, someMap: }
++
+ -LOG KeysMultiRelLabel
+ -STATEMENT MATCH (p:person)-[e:knows|:meets]->(:person) RETURN keys(e)
+ ---- 21
+@@ -92,6 +132,36 @@ C
+ [date,meetTime,validInterval,comments,summary,notes,someMap,location,times,data]
+ [date,meetTime,validInterval,comments,summary,notes,someMap,location,times,data]
+ 
++-LOG PropertiesMultiRelLabel
++-STATEMENT MATCH (p:person)-[e:knows|:meets]->(:person) RETURN PROPERTIES(e)
++---- 21
++{date: 2021-06-30, meetTime: 1986-10-21 21:08:31.521, validInterval: 10 years 5 months 13:00:00.000024, comments: [rnme,m8sihsdnf2990nfiwf], summary: {locations: ['toronto','waterloo'], transfer: {day: 2021-01-02, amount: [100,200]}}, notes: 1, someMap: {a=b}, location: , times: , data: }
++{date: 2021-06-30, meetTime: 1946-08-25 19:07:22, validInterval: 20 years 30 days 48:00:00, comments: [njnojppo9u0jkmf,fjiojioh9h9h89hph], summary: {locations: , transfer: }, notes: 2020-10-10, someMap: {c=d, e=f, 1=2}, location: , times: , data: }
++{date: 2021-06-30, meetTime: 2012-12-11 20:07:22, validInterval: 10 days, comments: [ioji232,jifhe8w99u43434], summary: {locations: ['shanghai'], transfer: {day: 1990-09-10, amount: [10]}}, notes: nice weather, someMap: , location: , times: , data: }
++{date: 2021-06-30, meetTime: 1946-08-25 19:07:22, validInterval: 10 years 5 months 13:00:00.000024, comments: [2huh9y89fsfw23,23nsihufhw723], summary: {locations: ['paris'], transfer: {day: 2000-01-01, amount: [20,5000]}}, notes: 4, someMap: , location: , times: , data: }
++{date: 1950-05-14, meetTime: 1946-08-25 19:07:22, validInterval: 00:23:00, comments: [fwehu9h9832wewew,23u9h989sdfsss], summary: {locations: ['paris'], transfer: {day: 2011-05-01, amount: [2000,5340]}}, notes: cool stuff found, someMap: , location: , times: , data: }
++{date: 1950-05-14, meetTime: 2012-12-11 20:07:22, validInterval: 20 years 30 days 48:00:00, comments: [fwh9y81232uisuiehuf,ewnuihxy8dyf232], summary: {locations: ['vancouver'], transfer: {day: 2020-01-01, amount: [120,50]}}, notes: matthew perry, someMap: , location: , times: , data: }
++{date: 2021-06-30, meetTime: 2002-07-31 11:42:53.12342, validInterval: 40 days 30:00:00, comments: [fnioh8323aeweae34d,osd89e2ejshuih12], summary: {locations: ['london','toronto'], transfer: {day: 2012-11-21, amount: [223,5230]}}, notes: 10, someMap: , location: , times: , data: }
++{date: 1950-05-14, meetTime: 2007-02-12 12:11:42.123, validInterval: 00:28:00.03, comments: [fwh983-sdjisdfji,ioh89y32r2huir], summary: {locations: ['paris','beijing'], transfer: {day: 2011-03-11, amount: [2323,50]}}, notes: 1, someMap: , location: , times: , data: }
++{date: 2000-01-01, meetTime: 1998-10-02 13:09:22.423, validInterval: 00:00:00.3, comments: [psh989823oaaioe,nuiuah1nosndfisf], summary: {locations: [], transfer: {day: 1980-11-21, amount: [20,5]}}, notes: 2, someMap: , location: , times: , data: }
++{date: 2021-06-30, meetTime: 1936-11-02 11:02:01, validInterval: 00:00:00.00048, comments: [fwewe], summary: {locations: ['shanghai','nanjing'], transfer: {day: 1998-11-12, amount: [22,53240]}}, notes: 15, someMap: , location: , times: , data: }
++{date: 1950-05-14, meetTime: 1982-11-11 13:12:05.123, validInterval: 00:23:00, comments: [fewh9182912e3,h9y8y89soidfsf,nuhudf78w78efw,hioshe0f9023sdsd], summary: {locations: ['paris'], transfer: {day: 2000-01-01, amount: [20,5000]}}, notes: happy new year, someMap: , location: , times: , data: }
++{date: 2000-01-01, meetTime: 1999-04-21 15:12:11.42, validInterval: 48:00:00.052, comments: [23h9sdslnfowhu2932,shuhf98922323sf], summary: {locations: ['paris'], transfer: {day: 2000-01-01, amount: [20,5000]}}, notes: 4, someMap: , location: , times: , data: }
++{date: 1905-12-12, meetTime: 2025-01-01 11:22:33.52, validInterval: 00:47:58, comments: [ahu2333333333333,12weeeeeeeeeeeeeeeeee], summary: {locations: ['toronto','thisisalongcityname'], transfer: {day: 1930-11-22, amount: [18,323]}}, notes: 8, someMap: , location: , times: , data: }
++{date: 1905-12-12, meetTime: 2020-03-01 12:11:41.6552, validInterval: 00:47:58, comments: [peweeeeeeeeeeeeeeeee,kowje9w0eweeeeeeeee], summary: {locations: ['waterloo'], transfer: {day: 2000-01-01, amount: [1000,5000]}}, notes: 10, someMap: , location: , times: , data: }
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [7.820000,3.540000], times: 5, data: \xAA\xBB\xCC\xDD}
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [2.870000,4.230000], times: 2, data: NO hex code}
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [3.650000,8.440000], times: 3, data: MIXED \xAC with ASCII \x0A}
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [2.110000,3.100000], times: 7, data: \xA1*}
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [2.200000,9.000000], times: 9, data: :\xA3}
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [3.000000,5.200000], times: 11, data: NO hex code}
++{date: , meetTime: , validInterval: , comments: , summary: , notes: , someMap: , location: [3.500000,1.100000], times: 13, data: :\xA3}
++
++-LOG PropertiesStruct
++-STATEMENT RETURN PROPERTIES({name: "alice", age: 9, nullvar: null})
++---- 1
++{name: alice, age: 9, nullvar: }
++
+ -LOG StructPackWithOptionalParam
+ -STATEMENT RETURN STRUCT_PACK(x:=2,y:=3);
+ ---- 1

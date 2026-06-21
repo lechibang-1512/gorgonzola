@@ -1,0 +1,172 @@
+diff --git a/extension/algo/src/function/louvain.cpp b/extension/algo/src/function/louvain.cpp
+index c2b64f76356..bc34a95ef8e 100644
+--- a/extension/algo/src/function/louvain.cpp
++++ b/extension/algo/src/function/louvain.cpp
+@@ -37,12 +37,12 @@ using namespace gorgonzola::function;
+ namespace gorgonzola {
+ namespace algo_extension {
+ 
+-constexpr double THRESHOLD = 1e-6;
+ constexpr offset_t UNASSIGNED_COMM = numeric_limits<offset_t>::max();
+ 
+ struct LouvainOptionalParams final : public GDSOptionalParams {
+     std::shared_ptr<Expression> maxPhases;
+     std::shared_ptr<Expression> maxIteration;
++    std::shared_ptr<Expression> tolerance;
+ 
+     explicit LouvainOptionalParams(const expression_vector& optionalParams);
+ 
+@@ -60,6 +60,8 @@ LouvainOptionalParams::LouvainOptionalParams(const expression_vector& optionalPa
+             maxPhases = optionalParam;
+         } else if (paramName == MaxIterations::NAME) {
+             maxIteration = optionalParam;
++        } else if (paramName == Tolerance::NAME) {
++            tolerance = optionalParam;
+         } else {
+             throw BinderException{"Unknown optional parameter: " + optionalParam->getAlias()};
+         }
+@@ -76,6 +78,10 @@ std::unique_ptr<GDSConfig> LouvainOptionalParams::getConfig() const {
+         config->maxIterations = ExpressionUtil::evaluateLiteral<int64_t>(*maxIteration,
+             LogicalType::INT64(), MaxIterations::validate);
+     }
++    if (tolerance != nullptr) {
++        config->tolerance =
++            ExpressionUtil::evaluateLiteral<double>(*tolerance, LogicalType::DOUBLE());
++    }
+     return config;
+ }
+ 
+@@ -275,7 +281,8 @@ class SaveCommAssignmentsVC final : public InMemVertexCompute {
+ 
+ class RunIterationVC final : public InMemVertexCompute {
+ public:
+-    explicit RunIterationVC(PhaseState& state) : state{state} {}
++    explicit RunIterationVC(PhaseState& state, const double tolerance)
++        : state{state}, tolerance{tolerance} {}
+     ~RunIterationVC() override = default;
+ 
+     void vertexCompute(const offset_t startOffset, const offset_t endOffset) override {
+@@ -381,7 +388,7 @@ class RunIterationVC final : public InMemVertexCompute {
+                                                       (newWeightedDegrees - prevWeightedDegrees);
+                 // Both sides multiplied by 2*m to reduce constants.
+                 const auto modGain = changeIntraWeights - changeSumWeightedDegrees;
+-                if (modGain > newCommModGain || ((newCommModGain - modGain) < THRESHOLD &&
++                if (modGain > newCommModGain || ((newCommModGain - modGain) < tolerance &&
+                                                     modGain != 0 && (nbrCommId < newComm))) {
+                     // Move if gain is higher, or gain is the same, but nbrComm has a lower ID.
+                     newCommModGain = modGain;
+@@ -398,11 +405,12 @@ class RunIterationVC final : public InMemVertexCompute {
+     }
+ 
+     std::unique_ptr<InMemVertexCompute> copy() override {
+-        return std::make_unique<RunIterationVC>(state);
++        return std::make_unique<RunIterationVC>(state, tolerance);
+     }
+ 
+ private:
+     PhaseState& state;
++    double tolerance;
+ };
+ 
+ class ComputeModularityVC final : public InMemVertexCompute {
+@@ -507,9 +515,7 @@ void initInMemoryGraph(const table_id_t tableId, const offset_t numNodes, Graph*
+         for (auto chunk : graph->scanBwd(nextNodeId, *scanState)) {
+             chunk.forEach([&](auto neighbors, auto, auto i) {
+                 auto nbrId = neighbors[i].offset;
+-                if (nbrId != nodeId) {
+-                    state.insertNbr(nodeId, nbrId);
+-                }
++                state.insertNbr(nodeId, nbrId);
+             });
+         }
+     }
+@@ -603,7 +609,7 @@ static common::offset_t tableFunc(const TableFuncInput& input, TableFuncOutput&)
+             // For each node, try to find a neighbor community such that moving the node to that
+             // community increases the graph modularity. Note that the new community assignments are
+             // sensitive to the order in which the nodes are processed.
+-            RunIterationVC runIteration(state);
++            RunIterationVC runIteration(state, config.tolerance);
+             InMemGDSUtils::runVertexCompute(runIteration, state.graph.numNodes, input.context);
+ 
+             progressBar->updateProgress(input.context->queryID, progress * 0.5);
+@@ -618,7 +624,7 @@ static common::offset_t tableFunc(const TableFuncInput& input, TableFuncOutput&)
+                 sumIntraWeights.load() * state.modularityConstant -
+                 (sumWeightedDegrees.load() * state.modularityConstant * state.modularityConstant);
+ 
+-            if (currMod - oldMod < THRESHOLD) {
++            if (currMod - oldMod < config.tolerance) {
+                 // The community assignments in `currComm` don't increase the modularity. The
+                 // assignments in `acceptedComm` are the final assignments for this phase.
+                 break;
+diff --git a/extension/algo/src/include/function/config/louvain_config.h b/extension/algo/src/include/function/config/louvain_config.h
+index 51751b71c58..a1a95749433 100644
+--- a/extension/algo/src/include/function/config/louvain_config.h
++++ b/extension/algo/src/include/function/config/louvain_config.h
+@@ -9,6 +9,8 @@
+ namespace gorgonzola {
+ namespace function {
+ 
++constexpr uint64_t DEFAULT_MAX_ITERATIONS = 20;
++
+ // The maximum number of phases in which the graph is clustered and then aggregated.
+ struct MaxPhases {
+     static constexpr const char* NAME = "maxphases";
+@@ -22,9 +24,17 @@ struct MaxPhases {
+     }
+ };
+ 
++// Minimum change in modularity to start a new iteration.
++struct Tolerance {
++    static constexpr const char* NAME = "tolerance";
++    static constexpr common::LogicalTypeID TYPE = common::LogicalTypeID::DOUBLE;
++    static constexpr double DEFAULT_VALUE = 1e-12;
++};
++
+ struct LouvainConfig final : public GDSConfig {
+-    uint64_t maxIterations = 20;
++    uint64_t maxIterations = DEFAULT_MAX_ITERATIONS;
+     uint64_t maxPhases = MaxPhases::DEFAULT_VALUE;
++    uint64_t tolerance = Tolerance::DEFAULT_VALUE;
+ 
+     LouvainConfig() = default;
+ };
+diff --git a/extension/algo/test/test_files/louvain.test b/extension/algo/test/test_files/louvain.test
+index 90b689db2ac..3fc0aac0444 100644
+--- a/extension/algo/test/test_files/louvain.test
++++ b/extension/algo/test/test_files/louvain.test
+@@ -57,14 +57,14 @@
+ ---- ok
+ -STATEMENT CALL PROJECT_GRAPH('Graph', ['Node'], ['Edge'])
+ ---- ok
+--STATEMENT CALL LOUVAIN('Graph') WITH louvain_id, min(node.id) as louvainId, count(*) as nodeCount, list_sort(collect(node.id)) as nodeIds RETURN louvainId, nodeCount, nodeIds ORDER BY louvainId;
++-STATEMENT CALL LOUVAIN('Graph') RETURN node.id, louvain_id;
+ ---- 6
+-0|1|[0]
+-1|1|[1]
+-2|1|[2]
+-3|1|[3]
+-4|1|[4]
+-5|1|[5]
++0|0
++1|-1
++2|-1
++3|-1
++4|-1
++5|-1
+ 
+ -CASE SimplePath
+ -STATEMENT load extension "${GORGONZOLA_ROOT_DIRECTORY}/extension/algo/build/libalgo.kuzu_extension"
+@@ -88,9 +88,10 @@
+ -STATEMENT CALL PROJECT_GRAPH('Graph', ['Node'], ['Edge'])
+ ---- ok
+ -STATEMENT CALL LOUVAIN('Graph') WITH louvain_id, min(node.id) as louvainId, count(*) as nodeCount, list_sort(collect(node.id)) as nodeIds RETURN louvainId, nodeCount, nodeIds ORDER BY louvainId;
+----- 2
+-0|3|[0,1,2]
+-3|3|[3,4,5]
++---- 3
++0|2|[0,1]
++2|2|[2,3]
++4|2|[4,5]
+ 
+ -CASE Single6Clique
+ -STATEMENT load extension "${GORGONZOLA_ROOT_DIRECTORY}/extension/algo/build/libalgo.kuzu_extension"

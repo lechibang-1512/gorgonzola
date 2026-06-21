@@ -1,0 +1,503 @@
+diff --git a/src/binder/bind/bind_graph_pattern.cpp b/src/binder/bind/bind_graph_pattern.cpp
+index 5d07eba077e..8f47193eee7 100644
+--- a/src/binder/bind/bind_graph_pattern.cpp
++++ b/src/binder/bind/bind_graph_pattern.cpp
+@@ -3,6 +3,7 @@
+ #include "binder/expression/literal_expression.h"
+ #include "binder/expression/path_expression.h"
+ #include "binder/expression/property_expression.h"
++#include "binder/expression/scalar_function_expression.h"
+ #include "binder/expression_visitor.h"
+ #include "catalog/catalog.h"
+ #include "catalog/catalog_entry/node_table_catalog_entry.h"
+@@ -11,8 +12,10 @@
+ #include "common/exception/binder.h"
+ #include "common/string_format.h"
+ #include "common/utils.h"
++#include "function/built_in_function_utils.h"
+ #include "function/cast/functions/cast_from_string_functions.h"
+ #include "function/rewrite_function.h"
++#include "function/scalar_function.h"
+ #include "function/schema/vector_node_rel_functions.h"
+ #include "main/client_context.h"
+ 
+@@ -56,6 +59,106 @@ QueryGraph Binder::bindPatternElement(const PatternElement& patternElement) {
+         nodeAndRels.push_back(rightNode);
+         leftNode = rightNode;
+     }
++    if (clientContext->getClientConfig()->recursivePatternSemantic != common::PathSemantic::WALK) {
++        if (queryGraph.hasRecursiveRel()) {
++            // The only one recursive rel doesn't need to be handled because RecursiveJoin
++            // already implements path semantics. Like (a)-[b*2]-(c)
++            // What needs to be handled is the recursive
++            // rels with other nodes/rels. Like (a)-[b*2]-(c)-[d*2]-(e) or (a)-[b*2]-(c)-[d]-(e)
++            auto rels = queryGraph.getQueryRels();
++            if (rels.size() > 1) {
++                std::vector<LogicalType> childrenTypes;
++                binder::expression_vector childrenExpressions;
++                std::string funcName;
++                if (clientContext->getClientConfig()->recursivePatternSemantic ==
++                    common::PathSemantic::ACYCLIC) {
++                    auto nodes = queryGraph.getQueryNodes();
++                    for (uint32_t j = 0; j < nodes.size(); ++j) {
++                        childrenTypes.push_back(nodes[j]->getInternalID()->dataType.copy());
++                        childrenExpressions.push_back(nodes[j]->getInternalID());
++                    }
++                    for (uint32_t j = 0; j < rels.size(); ++j) {
++                        if (rels[j]->isRecursive()) {
++                            childrenTypes.push_back(rels[j]->dataType.copy());
++                            childrenExpressions.push_back(rels[j]);
++                        }
++                    }
++                    funcName = function::IsNodeDistinctFunction::name;
++                } else {
++                    for (uint32_t j = 0; j < rels.size(); ++j) {
++                        if (rels[j]->isRecursive()) {
++                            childrenTypes.push_back(rels[j]->dataType.copy());
++                            childrenExpressions.push_back(rels[j]);
++                        } else {
++                            childrenTypes.push_back(
++                                rels[j]->getInternalIDProperty()->dataType.copy());
++                            childrenExpressions.push_back(rels[j]->getInternalIDProperty());
++                        }
++                    }
++                    funcName = function::IsRelDistinctFunction::name;
++                }
++                auto catalog = clientContext->getCatalog();
++                auto transaction = clientContext->getTransaction();
++                auto functionEntry = catalog->getFunctionEntry(transaction, funcName);
++                auto function = function::BuiltInFunctionsUtils::matchFunction(funcName,
++                    childrenTypes, functionEntry->ptrCast<FunctionCatalogEntry>())
++                                    ->ptrCast<function::ScalarFunction>()
++                                    ->copy();
++                std::unique_ptr<function::FunctionBindData> bindData =
++                    std::make_unique<function::FunctionBindData>(
++                        LogicalType(function->returnTypeID));
++                auto uniqueExpressionName = binder::ScalarFunctionExpression::getUniqueName(
++                    function->name, childrenExpressions);
++                auto functionExpression = std::make_shared<binder::ScalarFunctionExpression>(
++                    ExpressionType::FUNCTION, std::move(function), std::move(bindData),
++                    childrenExpressions, uniqueExpressionName);
++                queryGraph.addSemanticExpression(functionExpression);
++            }
++        } else {
++            // not have recursive rel. Like: (a)-[b]-(c)-[d]-(e)
++            std::vector<LogicalType> childrenTypes;
++            binder::expression_vector childrenExpressions;
++            if (clientContext->getClientConfig()->recursivePatternSemantic ==
++                common::PathSemantic::ACYCLIC) {
++                auto nodes = queryGraph.getQueryNodes();
++                for (uint32_t j = 0; j < nodes.size(); ++j) {
++                    childrenTypes.push_back(nodes[j]->getInternalID()->dataType.copy());
++                    childrenExpressions.push_back(nodes[j]->getInternalID());
++                }
++            } else {
++                auto rels = queryGraph.getQueryRels();
++                for (uint32_t j = 0; j < rels.size(); ++j) {
++                    childrenTypes.push_back(rels[j]->getInternalIDProperty()->dataType.copy());
++                    childrenExpressions.push_back(rels[j]->getInternalIDProperty());
++                }
++            }
++            if (childrenExpressions.size() > 2) {
++                auto catalog = clientContext->getCatalog();
++                auto transaction = clientContext->getTransaction();
++                auto functionEntry =
++                    catalog->getFunctionEntry(transaction, function::IsIDDistinctFunction::name);
++                auto function = function::BuiltInFunctionsUtils::matchFunction(
++                    function::IsIDDistinctFunction::name, childrenTypes,
++                    functionEntry->ptrCast<FunctionCatalogEntry>())
++                                    ->ptrCast<function::ScalarFunction>()
++                                    ->copy();
++                std::unique_ptr<function::FunctionBindData> bindData =
++                    std::make_unique<function::FunctionBindData>(
++                        LogicalType(function->returnTypeID));
++                auto uniqueExpressionName = binder::ScalarFunctionExpression::getUniqueName(
++                    function->name, childrenExpressions);
++                auto functionExpression = std::make_shared<binder::ScalarFunctionExpression>(
++                    ExpressionType::FUNCTION, std::move(function), std::move(bindData),
++                    childrenExpressions, uniqueExpressionName);
++                queryGraph.addSemanticExpression(functionExpression);
++            } else if (childrenExpressions.size() == 2) {
++                // when only two children use no_equal
++                auto noEquals = expressionBinder.bindComparisonExpression(
++                    gorgonzola::common::ExpressionType::NOT_EQUALS, childrenExpressions);
++                queryGraph.addSemanticExpression(noEquals);
++            }
++        }
++    }
+     if (patternElement.hasPathName()) {
+         auto pathName = patternElement.getPathName();
+         auto pathExpression = createPath(pathName, nodeAndRels);
+diff --git a/src/binder/bind/read/bind_match.cpp b/src/binder/bind/read/bind_match.cpp
+index 52e00d8e693..7647e0636ab 100644
+--- a/src/binder/bind/read/bind_match.cpp
++++ b/src/binder/bind/read/bind_match.cpp
+@@ -1,8 +1,13 @@
+ #include "binder/binder.h"
++#include "binder/expression/scalar_function_expression.h"
+ #include "binder/query/reading_clause/bound_match_clause.h"
++#include "catalog/catalog.h"
+ #include "common/exception/binder.h"
++#include "function/built_in_function_utils.h"
++#include "function/scalar_function.h"
++#include "function/schema/vector_node_rel_functions.h"
++#include "main/client_context.h"
+ #include "parser/query/reading_clause/match_clause.h"
+-
+ using namespace gorgonzola::common;
+ using namespace gorgonzola::parser;
+ 
+@@ -37,8 +42,27 @@ static void validateHintCompleteness(const BoundJoinHintNode& root, const QueryG
+ std::unique_ptr<BoundReadingClause> Binder::bindMatchClause(const ReadingClause& readingClause) {
+     auto& matchClause = readingClause.constCast<MatchClause>();
+     auto boundGraphPattern = bindGraphPattern(matchClause.getPatternElementsRef());
+-    if (matchClause.hasWherePredicate()) {
++    std::shared_ptr<Expression> semanticExpression;
++    auto queryGraphsNum = boundGraphPattern.queryGraphCollection.getNumQueryGraphs();
++    for (uint32_t i = 0; i < queryGraphsNum; ++i){
++        for(auto & expr: boundGraphPattern.queryGraphCollection.getQueryGraph(i)->getSemanticExpressions()) {
++            if(!semanticExpression){
++                semanticExpression = expr;
++            } else {
++                semanticExpression = expressionBinder.bindBooleanExpression(gorgonzola::common::ExpressionType::AND,
++                    binder::expression_vector{semanticExpression, expr});
++            }
++        }
++    }
++    if (matchClause.hasWherePredicate() && semanticExpression) {
++        boundGraphPattern.where =
++            expressionBinder.bindBooleanExpression(gorgonzola::common::ExpressionType::AND,
++                binder::expression_vector{semanticExpression,
++                    bindWhereExpression(*matchClause.getWherePredicate())});
++    } else if (matchClause.hasWherePredicate()) {
+         boundGraphPattern.where = bindWhereExpression(*matchClause.getWherePredicate());
++    } else if (semanticExpression) {
++        boundGraphPattern.where = semanticExpression;
+     }
+     rewriteMatchPattern(boundGraphPattern);
+     auto boundMatch = std::make_unique<BoundMatchClause>(
+diff --git a/src/binder/query/query_graph.cpp b/src/binder/query/query_graph.cpp
+index dc6d60a5e34..2e7b94c05cc 100644
+--- a/src/binder/query/query_graph.cpp
++++ b/src/binder/query/query_graph.cpp
+@@ -213,6 +213,9 @@ void QueryGraph::merge(const QueryGraph& other) {
+     for (auto& otherRel : other.queryRels) {
+         addQueryRel(otherRel);
+     }
++    for (auto& otherSemantic : other.semanticExpressions) {
++        semanticExpressions.push_back(otherSemantic);
++    }
+ }
+ 
+ bool QueryGraph::canProjectExpression(const std::shared_ptr<Expression>& expression) const {
+@@ -235,6 +238,15 @@ bool QueryGraph::isConnected(const QueryGraph& other) const {
+     return false;
+ }
+ 
++bool QueryGraph::hasRecursiveRel() {
++    for (auto& rel : queryRels) {
++        if (rel->isRecursive()) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ void QueryGraphCollection::addAndMergeQueryGraphIfConnected(QueryGraph queryGraphToAdd) {
+     auto newQueryGraphSet = std::vector<QueryGraph>();
+     for (auto i = 0u; i < queryGraphs.size(); i++) {
+diff --git a/src/function/function_collection.cpp b/src/function/function_collection.cpp
+index 1bd4ca23a35..3b1232023b2 100644
+--- a/src/function/function_collection.cpp
++++ b/src/function/function_collection.cpp
+@@ -188,6 +188,8 @@ FunctionCollection* FunctionCollection::getFunctions() {
+         SCALAR_FUNCTION(OffsetFunction), REWRITE_FUNCTION(IDFunction),
+         REWRITE_FUNCTION(StartNodeFunction), REWRITE_FUNCTION(EndNodeFunction),
+         REWRITE_FUNCTION(LabelFunction),
++        SCALAR_FUNCTION(IsIDDistinctFunction),SCALAR_FUNCTION(IsNodeDistinctFunction),
++        SCALAR_FUNCTION(IsRelDistinctFunction),
+ 
+         // Path functions
+         SCALAR_FUNCTION(NodesFunction), SCALAR_FUNCTION(RelsFunction),
+diff --git a/src/function/vector_node_rel_functions.cpp b/src/function/vector_node_rel_functions.cpp
+index 1d3afb9dc03..62ba486e698 100644
+--- a/src/function/vector_node_rel_functions.cpp
++++ b/src/function/vector_node_rel_functions.cpp
+@@ -1,6 +1,7 @@
+ #include "function/schema/vector_node_rel_functions.h"
+ 
+ #include "common/vector/value_vector.h"
++#include "function/hash/hash_functions.h"
+ #include "function/scalar_function.h"
+ #include "function/schema/offset_functions.h"
+ #include "function/unary_function_executor.h"
+@@ -23,5 +24,207 @@ function_set OffsetFunction::getFunctionSet() {
+     return functionSet;
+ }
+ 
++enum DistinctType { InternalID = 0, NodeInRecursive = 1, RelInRecursive = 2 };
++
++static std::string DistinctTypeToString(DistinctType type) {
++    std::string str;
++    switch (type) {
++    case InternalID:
++        return "InternalID";
++    case NodeInRecursive:
++        return "NodeInRecursive";
++    case RelInRecursive:
++        return "RelInRecursive";
++    default:
++        return "Unknown";
++    }
++}
++
++static std::vector<internalID_t> getData(const std::vector<std::shared_ptr<ValueVector>>& params,
++    uint64_t index, uint64_t paramPos, DistinctType distinctType) {
++    if (params[index]->dataType.getLogicalTypeID() == LogicalTypeID::INTERNAL_ID) {
++        auto paramData = ((internalID_t*)params[index]->getData())[paramPos];
++        return std::vector<internalID_t>{paramData};
++    } else if (params[index]->dataType.getLogicalTypeID() == LogicalTypeID::RECURSIVE_REL) {
++        auto fieldIdx = -1, internalIDFieldIdx = -1;
++        if (distinctType == DistinctType::NodeInRecursive) {
++            fieldIdx = 0;
++            KU_ASSERT(fieldIdx == common::StructType::getFieldIdx(params[index]->dataType,
++                                      common::InternalKeyword::NODES));
++            internalIDFieldIdx = 0;
++        } else if (distinctType == DistinctType::RelInRecursive) {
++            fieldIdx = 1;
++            KU_ASSERT(fieldIdx == common::StructType::getFieldIdx(params[index]->dataType,
++                                      common::InternalKeyword::RELS));
++            internalIDFieldIdx = 3;
++        } else {
++            throw RuntimeException("Error Distinct Function with input RECURSIVE_REL: " +
++                                   DistinctTypeToString(distinctType));
++        }
++        auto listVector = common::StructVector::getFieldVector(params[index].get(), fieldIdx).get();
++        auto listDataVector = common::ListVector::getDataVector(listVector);
++        KU_ASSERT(internalIDFieldIdx == common::StructType::getFieldIdx(listDataVector->dataType,
++                                            common::InternalKeyword::ID));
++        auto internalIDsVector =
++            common::StructVector::getFieldVector(listDataVector, internalIDFieldIdx).get();
++        auto& listEntry = listVector->getValue<common::list_entry_t>(paramPos);
++        std::vector<internalID_t> ids;
++        ids.reserve(listEntry.size);
++        for (auto i = 0u; i < listEntry.size; ++i) {
++            auto internalID =
++                internalIDsVector->getValue<common::internalID_t>(listEntry.offset + i);
++            ids.push_back(internalID);
++        }
++        return ids;
++    } else {
++        throw RuntimeException(
++            "isDistinct data type error, type is" + params[index]->dataType.toString());
++    }
++}
++
++static uint8_t isInternalIDDistinct(const std::vector<std::shared_ptr<ValueVector>>& params,
++    sel_t unFlatPos, std::unordered_set<common::nodeID_t, InternalIDHasher>& internalIDSet,
++    DistinctType distinctType) {
++    internalIDSet.clear();
++    uint8_t distinct = true;
++    for (auto paramIdx = 0u; paramIdx < params.size(); ++paramIdx) {
++        auto paramPos = params[paramIdx]->state->isFlat() ?
++                            params[paramIdx]->state->getSelVector()[0] :
++                            unFlatPos;
++        auto paramData = getData(params, paramIdx, paramPos, distinctType);
++        for (auto& internalID : paramData) {
++            if (internalIDSet.contains(internalID)) {
++                return false;
++            }
++            internalIDSet.insert(internalID);
++        }
++    }
++    return distinct;
++}
++
++static void distinctExecFuncWithType(const std::vector<std::shared_ptr<ValueVector>>& params,
++    ValueVector& result, DistinctType distinctType) {
++    result.resetAuxiliaryBuffer();
++    std::unordered_set<nodeID_t, InternalIDHasher> internalIDSet;
++    for (auto selectedPos = 0u; selectedPos < result.state->getSelVector().getSelSize();
++        ++selectedPos) {
++        auto pos = result.state->getSelVector()[selectedPos];
++        ((uint8_t*)result.getData())[pos] =
++            isInternalIDDistinct(params, pos, internalIDSet, distinctType);
++    }
++}
++static void IsIDDistinctExecFunc(const std::vector<std::shared_ptr<ValueVector>>& params,
++    ValueVector& result, void* /*dataPtr*/ = nullptr) {
++    distinctExecFuncWithType(params, result, DistinctType::InternalID);
++}
++
++static void IsNodeDistinctExecFunc(const std::vector<std::shared_ptr<ValueVector>>& params,
++    ValueVector& result, void* /*dataPtr*/ = nullptr) {
++    distinctExecFuncWithType(params, result, DistinctType::NodeInRecursive);
++}
++
++static void IsRelDistinctExecFunc(const std::vector<std::shared_ptr<ValueVector>>& params,
++    ValueVector& result, void* /*dataPtr*/ = nullptr) {
++    distinctExecFuncWithType(params, result, DistinctType::RelInRecursive);
++}
++
++static bool distinctSelectFuncWithType(
++    const std::vector<std::shared_ptr<common::ValueVector>>& params, SelectionVector& selVector,
++    DistinctType distinctType) {
++
++    bool hasUnFlat = false;
++    auto firstUnFlatIndex = 0u;
++    for (auto i = 0u; i < params.size(); ++i) {
++        if (!params[i]->state->isFlat())  {
++            hasUnFlat = true;
++            firstUnFlatIndex = i;
++        }
++    }
++    std::unordered_set<nodeID_t, InternalIDHasher> internalIDSet;
++
++    if (!hasUnFlat) {
++        for (auto paramIdx = 0u; paramIdx< params.size();++paramIdx) {
++            auto paramPos = params[paramIdx]->state->getSelVector()[0];
++            auto paramData = getData(params, paramIdx, paramPos, distinctType);
++            for (auto internalID : paramData) {
++                if (internalIDSet.contains(internalID)) {
++                    return false;
++                }
++                internalIDSet.insert(internalID);
++            }
++        }
++        return true;
++    } else {
++        auto numSelectedValues = 0u;
++        auto buffer = selVector.getMutableBuffer();
++        auto& firstUnFlatSelectionVector = params[firstUnFlatIndex]->state->getSelVector();
++        if (firstUnFlatSelectionVector.isUnfiltered()) {
++            for (auto i = 0u; i < firstUnFlatSelectionVector.getSelSize(); ++i) {
++                auto pos = i;
++                uint8_t isDistinct = isInternalIDDistinct(params, pos, internalIDSet, distinctType);
++                buffer[numSelectedValues] = i;
++                numSelectedValues += isDistinct;
++            }
++        } else {
++            for (auto i = 0u; i < firstUnFlatSelectionVector.getSelSize(); ++i) {
++                auto pos = firstUnFlatSelectionVector[i];
++                uint8_t isDistinct = isInternalIDDistinct(params, pos, internalIDSet, distinctType);
++                buffer[numSelectedValues] = pos;
++                numSelectedValues += isDistinct;
++            }
++        }
++        selVector.setSelSize(numSelectedValues);
++        return numSelectedValues > 0;
++    }
++}
++static bool IsIDDistinctSelectFunc(const std::vector<std::shared_ptr<common::ValueVector>>& params,
++    common::SelectionVector& selVector) {
++    return distinctSelectFuncWithType(params, selVector, DistinctType::InternalID);
++}
++
++static bool IsNodeDistinctSelectFunc(
++    const std::vector<std::shared_ptr<common::ValueVector>>& params,
++    common::SelectionVector& selVector) {
++    return distinctSelectFuncWithType(params, selVector, DistinctType::NodeInRecursive);
++}
++
++static bool IsRelDistinctSelectFunc(const std::vector<std::shared_ptr<common::ValueVector>>& params,
++    common::SelectionVector& selVector) {
++    return distinctSelectFuncWithType(params, selVector, DistinctType::RelInRecursive);
++}
++
++
++function_set IsIDDistinctFunction::getFunctionSet() {
++    function_set functionSet;
++    auto function =
++        make_unique<ScalarFunction>(name, std::vector<LogicalTypeID>{LogicalTypeID::INTERNAL_ID},
++            common::LogicalTypeID::BOOL, IsIDDistinctExecFunc, IsIDDistinctSelectFunc);
++    function->isVarLength = true;
++    functionSet.push_back(std::move(function));
++
++    return functionSet;
++}
++
++function_set IsNodeDistinctFunction::getFunctionSet() {
++    function_set functionSet;
++    auto function =
++        make_unique<ScalarFunction>(name, std::vector<LogicalTypeID>{LogicalTypeID::ANY},
++            common::LogicalTypeID::BOOL, IsNodeDistinctExecFunc, IsNodeDistinctSelectFunc);
++    function->isVarLength = true;
++    functionSet.push_back(std::move(function));
++
++    return functionSet;
++}
++
++function_set IsRelDistinctFunction::getFunctionSet() {
++    function_set functionSet;
++    auto function =
++        make_unique<ScalarFunction>(name, std::vector<LogicalTypeID>{LogicalTypeID::ANY},
++            common::LogicalTypeID::BOOL, IsRelDistinctExecFunc, IsRelDistinctSelectFunc);
++    function->isVarLength = true;
++    functionSet.push_back(std::move(function));
++
++    return functionSet;
++}
+ } // namespace function
+ } // namespace gorgonzola
+diff --git a/src/include/binder/query/query_graph.h b/src/include/binder/query/query_graph.h
+index fdb06b85155..94b12a8fdf0 100644
+--- a/src/include/binder/query/query_graph.h
++++ b/src/include/binder/query/query_graph.h
+@@ -75,7 +75,7 @@ class QueryGraph {
+     QueryGraph(const QueryGraph& other)
+         : queryNodeNameToPosMap{other.queryNodeNameToPosMap},
+           queryRelNameToPosMap{other.queryRelNameToPosMap}, queryNodes{other.queryNodes},
+-          queryRels{other.queryRels} {}
++          queryRels{other.queryRels}, semanticExpressions{other.semanticExpressions} {}
+ 
+     EXPLICIT_COPY_DEFAULT_MOVE(QueryGraph);
+ 
+@@ -133,11 +133,22 @@ class QueryGraph {
+ 
+     void merge(const QueryGraph& other);
+ 
++    bool hasRecursiveRel();
++
++    std::vector<std::shared_ptr<Expression>> getSemanticExpressions() const {
++        return semanticExpressions;
++    }
++
++    void addSemanticExpression(std::shared_ptr<Expression> _expression) {
++        semanticExpressions.push_back(_expression);
++    }
++
+ private:
+     std::unordered_map<std::string, uint32_t> queryNodeNameToPosMap;
+     std::unordered_map<std::string, uint32_t> queryRelNameToPosMap;
+     std::vector<std::shared_ptr<NodeExpression>> queryNodes;
+     std::vector<std::shared_ptr<RelExpression>> queryRels;
++    std::vector<std::shared_ptr<Expression>> semanticExpressions;
+ };
+ 
+ // QueryGraphCollection represents a pattern (a set of connected components) specified in MATCH
+diff --git a/src/include/function/schema/vector_node_rel_functions.h b/src/include/function/schema/vector_node_rel_functions.h
+index ec6908136bb..225e61ca87f 100644
+--- a/src/include/function/schema/vector_node_rel_functions.h
++++ b/src/include/function/schema/vector_node_rel_functions.h
+@@ -38,5 +38,21 @@ struct LabelFunction {
+     static std::shared_ptr<binder::Expression> rewriteFunc(const RewriteFunctionBindInput& input);
+ };
+ 
++struct IsIDDistinctFunction {
++    static constexpr const char* name = "IS_ID_DISTINCT";
++    static function_set getFunctionSet();
++};
++
++struct IsNodeDistinctFunction {
++    static constexpr const char* name = "IS_NODE_DISTINCT";
++    static function_set getFunctionSet();
++};
++
++struct IsRelDistinctFunction {
++    static constexpr const char* name = "IS_REL_DISTINCT";
++    static function_set getFunctionSet();
++};
++
++
+ } // namespace function
+ } // namespace gorgonzola

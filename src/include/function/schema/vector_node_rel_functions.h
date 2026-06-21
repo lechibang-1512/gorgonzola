@@ -50,5 +50,21 @@ struct CostFunction {
     static function_set getFunctionSet();
 };
 
+struct IsIDDistinctFunction {
+    static constexpr const char* name = "IS_ID_DISTINCT";
+    static function_set getFunctionSet();
+};
+
+struct IsNodeDistinctFunction {
+    static constexpr const char* name = "IS_NODE_DISTINCT";
+    static function_set getFunctionSet();
+};
+
+struct IsRelDistinctFunction {
+    static constexpr const char* name = "IS_REL_DISTINCT";
+    static function_set getFunctionSet();
+};
+
+
 } // namespace function
 } // namespace gorgonzola

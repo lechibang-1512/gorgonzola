@@ -6,7 +6,7 @@
 namespace gorgonzola {
 namespace function {
 
-struct GDSComputeState {
+struct GORGONZOLA_API GDSComputeState {
     std::shared_ptr<FrontierPair> frontierPair = nullptr;
     std::unique_ptr<EdgeCompute> edgeCompute = nullptr;
     std::unique_ptr<GDSAuxiliaryState> auxiliaryState = nullptr;
