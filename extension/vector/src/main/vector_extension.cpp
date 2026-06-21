@@ -4,29 +4,25 @@
 #include "function/hnsw_index_functions.h"
 #include "main/client_context.h"
 #include "main/database.h"
-#include "storage/storage_manager.h"
 
 namespace gorgonzola {
 namespace vector_extension {
 
 static void initHNSWEntries(main::ClientContext* context) {
-    auto storageManager = storage::StorageManager::Get(*context);
     auto catalog = catalog::Catalog::Get(*context);
     for (auto& indexEntry : catalog->getIndexEntries(transaction::Transaction::Get(*context))) {
         if (indexEntry->getIndexType() == HNSWIndexCatalogEntry::TYPE_NAME &&
             !indexEntry->isLoaded()) {
+            // Deserialize lightweight catalog metadata eagerly.
             indexEntry->setAuxInfo(HNSWIndexAuxInfo::deserialize(indexEntry->getAuxBufferReader()));
-            // Should load the index in storage side as well.
-            auto& nodeTable =
-                storageManager->getTable(indexEntry->getTableID())->cast<storage::NodeTable>();
-            auto optionalIndex = nodeTable.getIndexHolder(indexEntry->getIndexName());
-            KU_ASSERT_UNCONDITIONAL(
-                optionalIndex.has_value() && !optionalIndex.value().get().isLoaded());
-            auto& unloadedIndex = optionalIndex.value().get();
-            unloadedIndex.load(context, storageManager);
+            // NOTE (#6047): The heavy storage-level index loading is intentionally deferred.
+            // Previously, unloadedIndex.load() was called here for every HNSW index,
+            // which blocked database startup for seconds with large indexes.
+            // The index will now be loaded lazily when first queried via QUERY_VECTOR_INDEX.
         }
     }
 }
+
 
 void VectorExtension::load(main::ClientContext* context) {
     auto& db = *context->getDatabase();

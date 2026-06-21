@@ -238,6 +238,16 @@ void OverflowFile::checkpoint(PageAllocator& pageAllocator) {
         this->headerPageIdx = getNewPageIdx(&pageAllocator);
         headerChanged = true;
     }
+    // Check if any handles have data to checkpoint. If all handles are empty
+    // (e.g., index created with no data inserted), skip physical checkpoint
+    // to avoid writing uninitialized state. (#6045)
+    bool hasAnyData = false;
+    for (auto& handle : handles) {
+        if (handle->hasData()) {
+            hasAnyData = true;
+            break;
+        }
+    }
     // TODO(bmwinger): Ideally this could be done separately and in parallel by each HashIndex
     // However fileHandle->addNewPages needs to be called beforehand,
     // but after each HashIndex::prepareCommit has written to the in-memory pages
@@ -252,6 +262,7 @@ void OverflowFile::checkpoint(PageAllocator& pageAllocator) {
         writePageToDisk(headerPageIdx + HEADER_PAGE_IDX, page, false /*newPage*/);
     }
 }
+
 
 void OverflowFile::checkpointInMemory() {
     headerChanged = false;

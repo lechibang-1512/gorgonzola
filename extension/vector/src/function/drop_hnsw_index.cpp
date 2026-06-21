@@ -45,6 +45,10 @@ static std::unique_ptr<TableFuncBindData> bindFunc(main::ClientContext* context,
 static common::offset_t internalTableFunc(const TableFuncInput& input, TableFuncOutput&) {
     const auto& context = *input.context->clientContext;
     const auto bindData = input.bindData->constPtrCast<DropHNSWIndexBindData>();
+    // Guard: if skipAfterBind was set, tableEntry is null. (#6040)
+    if (bindData->skipAfterBind || bindData->tableEntry == nullptr) {
+        return 0;
+    }
     auto tableID = bindData->tableEntry->getTableID();
     auto transaction = transaction::Transaction::Get(context);
     catalog::Catalog::Get(context)->dropIndex(transaction, tableID, bindData->indexName);
@@ -52,6 +56,7 @@ static common::offset_t internalTableFunc(const TableFuncInput& input, TableFunc
         bindData->indexName);
     return 0;
 }
+
 
 static std::string dropHNSWIndexTables(main::ClientContext& context,
     const TableFuncBindData& bindData) {

@@ -4,6 +4,7 @@
 
 #include "binder/expression/expression_util.h"
 #include "common/assert.h"
+#include "common/exception/interrupt.h"
 #include "common/types/types.h"
 #include "main/client_context.h"
 #include "processor/execution_context.h"
@@ -250,6 +251,10 @@ void HashAggregate::initLocalStateInternal(ResultSet* resultSet, ExecutionContex
 
 void HashAggregate::executeInternal(ExecutionContext* context) {
     while (children[0]->getNextTuple(context)) {
+        // Check for client interrupt to allow cancellation of runaway queries (#6049)
+        if (context->clientContext->interrupted()) {
+            throw common::InterruptException{};
+        }
         const auto numAppendedFlatTuples = localState.append(aggInputs, resultSet->multiplicity);
         metrics->numOutputTuple.increase(numAppendedFlatTuples);
         // Note: The limit count check here is only applicable to the distinct limit case.
@@ -260,6 +265,7 @@ void HashAggregate::executeInternal(ExecutionContext* context) {
     }
     localState.aggregateHashTable->mergeIfFull(0 /*tuplesToAdd*/, true /*mergeAll*/);
 }
+
 
 } // namespace processor
 } // namespace gorgonzola

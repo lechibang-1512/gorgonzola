@@ -23,11 +23,18 @@ struct Label {
     static void operation(internalID_t& left, list_entry_t& right, ku_string_t& result,
         ValueVector& leftVector, ValueVector& rightVector, ValueVector& resultVector,
         uint64_t resPos) {
-        KU_ASSERT(left.tableID < right.size);
+        // Guard: If tableID is invalid or out of range for the labels list, return NULL
+        // instead of crashing. This can happen when label() is called on a NODE extracted
+        // from a list (e.g., nodes(p)[1]) where the structural context is not preserved.
+        if (left.tableID >= right.size) {
+            resultVector.setNull(resPos, true);
+            return;
+        }
         ListExtract::operation(right, left.tableID + 1 /* listExtract requires 1-based index */,
             result, rightVector, leftVector, resultVector, resPos);
     }
 };
+
 
 static void execFunction(const std::vector<std::shared_ptr<ValueVector>>& params,
     const std::vector<SelectionVector*>& paramSelVectors, ValueVector& result,

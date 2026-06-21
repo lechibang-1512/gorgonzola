@@ -228,9 +228,16 @@ static offset_t tableFunc(const TableFuncInput& input, TableFuncOutput& output) 
     // As `k` can be larger than the default vector capacity, we run the actual search in the first
     // call, and output the rest of the query result in chunks in the following calls.
     if (!localState->hasResultToOutput()) {
-        const auto nodeTable = storage::StorageManager::Get(*input.context->clientContext)
+        auto nodeTable = storage::StorageManager::Get(*input.context->clientContext)
                                    ->getTable(bindData->nodeTableEntry->getTableID())
                                    ->ptrCast<storage::NodeTable>();
+        // Lazy-load the storage-level index if it hasn't been loaded yet (#6047).
+        // This supports deferred initialization from vector_extension startup.
+        auto indexHolder = nodeTable->getIndexHolder(bindData->indexEntry->getIndexName());
+        if (indexHolder.has_value() && !indexHolder.value().get().isLoaded()) {
+            auto storageManager = storage::StorageManager::Get(*input.context->clientContext);
+            indexHolder.value().get().load(input.context->clientContext, storageManager);
+        }
         auto indexOpt = nodeTable->getIndex(bindData->indexEntry->getIndexName());
         KU_ASSERT(indexOpt.has_value());
         auto& index = indexOpt.value()->cast<OnDiskHNSWIndex>();

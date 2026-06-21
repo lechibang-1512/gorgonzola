@@ -779,15 +779,15 @@ void NodeTable::addIndex(std::unique_ptr<Index> index) {
 }
 
 void NodeTable::dropIndex(const std::string& name) {
-    KU_ASSERT(getIndex(name) != nullptr);
     for (auto it = indexes.begin(); it != indexes.end(); ++it) {
         if (StringUtils::caseInsensitiveEquals(it->getName(), name)) {
-            KU_ASSERT(it->isLoaded());
+            // Allow dropping both loaded and unloaded indexes. (#6040)
             indexes.erase(it);
             return;
         }
     }
 }
+
 
 std::optional<std::reference_wrapper<IndexHolder>> NodeTable::getIndexHolder(
     const std::string& name) {

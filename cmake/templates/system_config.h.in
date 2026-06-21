@@ -64,7 +64,10 @@ struct OrderByConfig {
 };
 
 struct CopyConfig {
-    static constexpr uint64_t PANDAS_PARTITION_COUNT = 50 * DEFAULT_VECTOR_CAPACITY;
+    // (#6012) Reduced from 50 * DEFAULT_VECTOR_CAPACITY to 10 * DEFAULT_VECTOR_CAPACITY
+    // to reduce peak memory usage during Pandas LOAD operations. Smaller batches allow
+    // internal ColumnChunk buffers to be reclaimed more frequently.
+    static constexpr uint64_t PANDAS_PARTITION_COUNT = 10 * DEFAULT_VECTOR_CAPACITY;
 };
 
 } // namespace common

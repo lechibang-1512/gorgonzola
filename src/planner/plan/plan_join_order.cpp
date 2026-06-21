@@ -551,8 +551,25 @@ bool Planner::tryPlanINLJoin(const SubqueryGraph& subgraph, const SubqueryGraph&
             hasAppliedINLJoin = true;
         }
     }
+    // (#6028) Fallback: Even if the current plan doesn't have sequential guarantee,
+    // try to prefer INL join over hash join when the rel table scan is simple and
+    // the bound node can be scanned sequentially from the single-rel side.
+    // This avoids unnecessary hash joins for simple star queries like
+    // MATCH (p1)-[k]->(p2) RETURN p1.id
+    if (!hasAppliedINLJoin) {
+        for (auto& prevPlan : context.getPlans(otherSubgraph)) {
+            if (isNodeSequentialOnPlan(prevPlan, *boundNode)) {
+                auto plan = prevPlan.copy();
+                appendExtend(boundNode, nbrNode, rel, extendDirection, getProperties(*rel), plan);
+                appendFilters(predicates, plan);
+                context.addPlan(newSubgraph, std::move(plan));
+                hasAppliedINLJoin = true;
+            }
+        }
+    }
     return hasAppliedINLJoin;
 }
+
 
 void Planner::planInnerHashJoin(const SubqueryGraph& subgraph, const SubqueryGraph& otherSubgraph,
     const std::vector<std::shared_ptr<NodeExpression>>& joinNodes, bool flipPlan) {

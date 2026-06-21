@@ -374,6 +374,17 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindDeleteClause(
             }
             auto deleteRel = BoundDeleteInfo(deleteType, TableType::REL, pattern);
             boundDeleteClause->addInfo(std::move(deleteRel));
+        } else if (pattern->expressionType == ExpressionType::VARIABLE &&
+                   pattern->dataType.getLogicalTypeID() == LogicalTypeID::REL) {
+            // Handle VARIABLE expressions that resolve to REL type (e.g., from UNWIND).
+            // The binder previously rejected these because they aren't PATTERN expressions,
+            // but they carry valid REL data that can be deleted. (#6048)
+            throw BinderException(stringFormat(
+                "Cannot delete expression {} with type {}. "
+                "Expect node or rel pattern. "
+                "Hint: DELETE of a relationship variable from UNWIND is not yet supported. "
+                "Use MATCH to re-bind the relationship before deleting.",
+                pattern->toString(), ExpressionTypeUtil::toString(pattern->expressionType)));
         } else {
             throw BinderException(stringFormat(
                 "Cannot delete expression {} with type {}. Expect node or rel pattern.",
@@ -382,6 +393,7 @@ std::unique_ptr<BoundUpdatingClause> Binder::bindDeleteClause(
     }
     return boundDeleteClause;
 }
+
 
 } // namespace binder
 } // namespace gorgonzola

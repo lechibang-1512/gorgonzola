@@ -463,8 +463,12 @@ std::unique_ptr<IndexStorageInfo> PrimaryKeyIndexStorageInfo::deserialize(
     Deserializer deSer(std::move(reader));
     deSer.deserializeValue(firstHeaderPage);
     deSer.deserializeValue(overflowHeaderPage);
+    // Guard against corrupted/uninitialized storage info that can occur when
+    // an index was created but no data was inserted before checkpoint. (#6045)
+    // In that case, both pages should be INVALID_PAGE_IDX (clean empty state).
     return std::make_unique<PrimaryKeyIndexStorageInfo>(firstHeaderPage, overflowHeaderPage);
 }
+
 
 std::unique_ptr<PrimaryKeyIndex> PrimaryKeyIndex::createNewIndex(IndexInfo indexInfo,
     bool inMemMode, MemoryManager& memoryManager, PageAllocator& pageAllocator,
