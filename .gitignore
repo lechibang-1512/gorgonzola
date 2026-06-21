@@ -84,3 +84,9 @@ scripts/generate-cpp-docs/c/docs
 dataset/binary-demo
 dataset/databases/tinysnb
 dataset/ldbc-1/csv
+
+# Patches and conflicts
+*.patch
+*.rej
+*.orig
+
