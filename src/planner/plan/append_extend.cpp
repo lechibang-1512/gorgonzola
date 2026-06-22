@@ -107,7 +107,7 @@ void Planner::appendRecursiveExtend(const std::shared_ptr<NodeExpression>& bound
     bindData->nodeInput = boundNode;
     bindData->extendDirection = direction;
     // If we extend from right to left, we need to print path in reverse direction.
-    bindData->flipPath = *boundNode == *rel->getRightNode();
+    bindData->extendRightToLeft = *boundNode == *rel->getRightNode();
     auto resultColumns = recursiveInfo->function->getResultColumns(*bindData);
     auto recursiveExtend = std::make_shared<LogicalRecursiveExtend>(recursiveInfo->function->copy(),
         *recursiveInfo->bindData, resultColumns);

@@ -3,6 +3,7 @@
 #include "binder/expression/expression_util.h"
 #include "planner/join_order/cardinality_estimator.h"
 #include "planner/operator/extend/logical_extend.h"
+#include "planner/operator/extend/logical_recursive_extend.h"
 #include "planner/operator/logical_aggregate.h"
 #include "planner/operator/logical_filter.h"
 #include "planner/operator/logical_flatten.h"
@@ -20,6 +21,8 @@ void CardinalityUpdater::visitOperator(planner::LogicalOperator* op) {
     for (auto i = 0u; i < op->getNumChildren(); ++i) {
         visitOperator(op->getChild(i).get());
     }
+    // we need to recompute the cardinality multipliers for each factorized group
+    op->computeFactorizedSchema();
     visitOperatorSwitchWithDefault(op);
 }
 
@@ -31,6 +34,10 @@ void CardinalityUpdater::visitOperatorSwitchWithDefault(planner::LogicalOperator
     }
     case planner::LogicalOperatorType::EXTEND: {
         visitExtend(op);
+        break;
+    }
+    case planner::LogicalOperatorType::RECURSIVE_EXTEND: {
+        visitRecursiveExtend(op);
         break;
     }
     case planner::LogicalOperatorType::HASH_JOIN: {
@@ -85,6 +92,14 @@ void CardinalityUpdater::visitExtend(planner::LogicalOperator* op) {
         *extend.getBoundNode(), transaction);
     extend.setCardinality(
         cardinalityEstimator.multiply(extensionRate, op->getChild(0)->getCardinality()));
+    auto group = extend.getSchema()->getGroup(extend.getNbrNode()->getInternalID());
+    group->setMultiplier(extensionRate);
+}
+
+void CardinalityUpdater::visitRecursiveExtend(planner::LogicalOperator* op) {
+    // The fork's LogicalRecursiveExtend is GDS/RJ-based and does not have rel/boundNode/nbrNode.
+    // Propagate cardinality from child if available; otherwise retain existing cardinality.
+    visitOperatorDefault(op);
 }
 
 void CardinalityUpdater::visitHashJoin(planner::LogicalOperator* op) {

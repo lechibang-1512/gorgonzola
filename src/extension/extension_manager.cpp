@@ -159,10 +159,17 @@ std::vector<storage::StorageExtension*> ExtensionManager::getStorageExtensions()
 }
 
 void ExtensionManager::autoLoadLinkedExtensions(main::ClientContext* context) {
+    // Begin a read transaction so extensions can query catalog during loading.
+    // Vector extension manages its own transactions (READ_ONLY) for background loading,
+    // but other extensions (FTS etc.) still need a catalog transaction available.
     auto trxContext = transaction::TransactionContext::Get(*context);
-    trxContext->beginRecoveryTransaction();
-    loadLinkedExtensions(context, loadedExtensions);
-    trxContext->commit();
+    if (!trxContext->hasActiveTransaction()) {
+        trxContext->beginRecoveryTransaction();
+        loadLinkedExtensions(context, loadedExtensions);
+        trxContext->commit();
+    } else {
+        loadLinkedExtensions(context, loadedExtensions);
+    }
 }
 
 ExtensionManager* ExtensionManager::Get(const main::ClientContext& context) {

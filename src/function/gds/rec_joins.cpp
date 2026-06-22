@@ -11,7 +11,7 @@ RJBindData::RJBindData(const RJBindData& other) {
     upperBound = other.upperBound;
     semantic = other.semantic;
     extendDirection = other.extendDirection;
-    flipPath = other.flipPath;
+    extendRightToLeft = other.extendRightToLeft;
     writePath = other.writePath;
     directionExpr = other.directionExpr;
     lengthExpr = other.lengthExpr;
@@ -19,16 +19,26 @@ RJBindData::RJBindData(const RJBindData& other) {
     pathEdgeIDsExpr = other.pathEdgeIDsExpr;
     weightPropertyExpr = other.weightPropertyExpr;
     weightOutputExpr = other.weightOutputExpr;
+    stepFromLeftActivationRelInfos = other.stepFromLeftActivationRelInfos;
+    stepFromRightActivationRelInfos = other.stepFromRightActivationRelInfos;
 }
 
 PathsOutputWriterInfo RJBindData::getPathWriterInfo() const {
     auto info = PathsOutputWriterInfo();
     info.semantic = semantic;
     info.lowerBound = lowerBound;
-    info.flipPath = flipPath;
+    info.extendRightToLeft = extendRightToLeft;
     info.writeEdgeDirection = writePath && extendDirection == common::ExtendDirection::BOTH;
     info.writePath = writePath;
     return info;
+}
+
+std::vector<common::table_id_set_t> RJBindData::getStepActiveRelTableIDs() const {
+    if (extendRightToLeft) {
+        return stepFromRightActivationRelInfos;
+    } else {
+        return stepFromLeftActivationRelInfos;
+    }
 }
 
 } // namespace function

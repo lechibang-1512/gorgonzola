@@ -59,11 +59,16 @@ static void scheduleFrontierTask(ExecutionContext* context, const GraphRelInfo& 
 
 static void runOneIteration(ExecutionContext* context, Graph* graph,
     ExtendDirection extendDirection, const GDSComputeState& compState,
-    const std::vector<std::string>& propertiesToScan) {
+    const std::vector<std::string>& propertiesToScan,
+    const common::table_id_set_t* activeRelTableIDs = nullptr) {
     for (auto info : graph->getGraphEntry()->nodeInfos) {
         for (const auto& relInfo : graph->getRelInfos(info.entry->getTableID())) {
             if (context->clientContext->interrupted()) {
                 throw InterruptException{};
+            }
+            if (activeRelTableIDs != nullptr &&
+                    !activeRelTableIDs->contains(relInfo.relTableID)) {
+                continue;
             }
             switch (extendDirection) {
             case ExtendDirection::FWD: {
@@ -114,7 +119,10 @@ void GDSUtils::runRecursiveJoinEdgeCompute(ExecutionContext* context, GDSCompute
         if (outputNodeMask != nullptr && compState.edgeCompute->terminate(*outputNodeMask)) {
             break;
         }
-        runOneIteration(context, graph, extendDirection, compState, propertiesToScan);
+        auto activeRelTableIDs =
+            compState.getActiveRelTableIDs(frontierPair->getCurrentIter() - 1, graph);
+        runOneIteration(context, graph, extendDirection, compState, propertiesToScan,
+            &activeRelTableIDs);
         if (frontierPair->needSwitchToDense(
                 context->clientContext->getClientConfig()->sparseFrontierThreshold)) {
             compState.switchToDense(context, graph);

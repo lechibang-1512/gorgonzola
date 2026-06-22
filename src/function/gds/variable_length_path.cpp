@@ -114,8 +114,8 @@ public:
     }
 
 private:
-    std::unique_ptr<GDSComputeState> getComputeState(ExecutionContext* context, const RJBindData&,
-        RecursiveExtendSharedState* sharedState) override {
+    std::unique_ptr<GDSComputeState> getComputeState(ExecutionContext* context,
+        const RJBindData& bindData, RecursiveExtendSharedState* sharedState) override {
         auto clientContext = context->clientContext;
         auto transaction = transaction::Transaction::Get(*clientContext);
         auto bfsGraph =
@@ -131,7 +131,7 @@ private:
             std::make_unique<VarLenJoinsEdgeCompute>(frontierPair.get(), bfsGraph.get());
         auto auxiliaryState = std::make_unique<PathAuxiliaryState>(std::move(bfsGraph));
         return std::make_unique<GDSComputeState>(std::move(frontierPair), std::move(edgeCompute),
-            std::move(auxiliaryState));
+            std::move(auxiliaryState), bindData.getStepActiveRelTableIDs());
     }
 
     std::unique_ptr<RJOutputWriter> getOutputWriter(ExecutionContext* context,

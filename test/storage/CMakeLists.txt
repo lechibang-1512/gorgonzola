@@ -2,6 +2,7 @@ add_gorgonzola_test(node_insertion_deletion_test node_insertion_deletion_test.cp
 add_gorgonzola_test(compression_test compression_test.cpp compress_chunk_test.cpp)
 add_gorgonzola_test(column_chunk_metadata_test column_chunk_metadata_test.cpp)
 add_gorgonzola_test(local_hash_index_test local_hash_index_test.cpp)
+add_gorgonzola_test(overflow_file_checkpoint_test overflow_file_checkpoint_test.cpp)
 add_gorgonzola_test(buffer_manager_test buffer_manager_test.cpp)
 add_gorgonzola_test(rel_tests rel_scan_test.cpp rel_delete_test.cpp)
 add_gorgonzola_test(node_update_test node_update_test.cpp)

@@ -14,6 +14,7 @@
 #include "storage/shadow_utils.h"
 #include "storage/storage_manager.h"
 #include "storage/wal/local_wal.h"
+#include "transaction/transaction_manager.h"
 
 namespace gorgonzola {
 namespace storage {
@@ -69,6 +70,9 @@ void Checkpointer::writeCheckpoint() {
 
     auto databaseHeader =
         *StorageManager::Get(clientContext)->getOrInitDatabaseHeader(clientContext);
+    // Save TransactionManager state
+    auto transactionManager = transaction::TransactionManager::Get(clientContext);
+    databaseHeader.lastTimestamp = transactionManager->getLastTimestamp();
     // Checkpoint storage. Note that we first checkpoint storage before serializing the catalog, as
     // checkpointing storage may overwrite columnIDs in the catalog.
     bool hasStorageChanges = checkpointStorage();
@@ -197,7 +201,7 @@ void Checkpointer::readCheckpoint() {
     if (!isInMemory && storageManager->getDataFH()->getNumPages() > 0) {
         readCheckpoint(&clientContext, catalog::Catalog::Get(clientContext), storageManager);
     }
-    extension::ExtensionManager::Get(clientContext)->autoLoadLinkedExtensions(&clientContext);
+    // Extension loading moved to Database::initMembers() after recovery completes
 }
 
 void Checkpointer::readCheckpoint(main::ClientContext* context, catalog::Catalog* catalog,
@@ -206,6 +210,9 @@ void Checkpointer::readCheckpoint(main::ClientContext* context, catalog::Catalog
     auto reader = std::make_unique<common::BufferedFileReader>(*fileInfo);
     common::Deserializer deSer(std::move(reader));
     auto currentHeader = std::make_unique<DatabaseHeader>(DatabaseHeader::deserialize(deSer));
+    // Restore TransactionManager state
+    auto transactionManager = transaction::TransactionManager::Get(*context);
+    transactionManager->setLastTimestamp(currentHeader->lastTimestamp);
     // If the catalog page range is invalid, it means there is no catalog to read; thus, the
     // database is empty.
     if (currentHeader->catalogPageRange.startPageIdx != common::INVALID_PAGE_IDX) {

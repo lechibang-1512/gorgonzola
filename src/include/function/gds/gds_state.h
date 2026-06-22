@@ -1,20 +1,28 @@
 #pragma once
 
 #include "auxiliary_state/gds_auxilary_state.h"
+#include "common/types/types.h"
 #include "gds_frontier.h"
 
 namespace gorgonzola {
+namespace graph {
+class Graph;
+} // namespace graph
 namespace function {
 
 struct GORGONZOLA_API GDSComputeState {
     std::shared_ptr<FrontierPair> frontierPair = nullptr;
     std::unique_ptr<EdgeCompute> edgeCompute = nullptr;
     std::unique_ptr<GDSAuxiliaryState> auxiliaryState = nullptr;
+    // While stepActiveRelTableIDs is empty, using all relTableIDs in graph
+    std::vector<common::table_id_set_t> stepActiveRelTableIDs;
 
     GDSComputeState(std::shared_ptr<FrontierPair> frontierPair,
-        std::unique_ptr<EdgeCompute> edgeCompute, std::unique_ptr<GDSAuxiliaryState> auxiliaryState)
+        std::unique_ptr<EdgeCompute> edgeCompute, std::unique_ptr<GDSAuxiliaryState> auxiliaryState,
+        std::vector<common::table_id_set_t> stepActiveRelTableIDs = {})
         : frontierPair{std::move(frontierPair)}, edgeCompute{std::move(edgeCompute)},
-          auxiliaryState{std::move(auxiliaryState)} {}
+          auxiliaryState{std::move(auxiliaryState)},
+          stepActiveRelTableIDs{std::move(stepActiveRelTableIDs)} {}
 
     void initSource(common::nodeID_t sourceNodeID) const;
     // When performing computations on multi-label graphs, it is beneficial to fix a single
@@ -28,6 +36,8 @@ struct GORGONZOLA_API GDSComputeState {
     // RJOutputs, to possibly avoid them doing lookups of S and T-related data structures,
     // e.g., maps, internally.
     void beginFrontierCompute(common::table_id_t currTableID, common::table_id_t nextTableID) const;
+
+    common::table_id_set_t getActiveRelTableIDs(size_t index, graph::Graph* graph);
 
     // Switch all data structures (frontierPair & auxiliaryState) to dense version.
     void switchToDense(processor::ExecutionContext* context, graph::Graph* graph) const;

@@ -87,6 +87,8 @@ public:
         recursiveInfo = std::move(recursiveInfo_);
     }
     const RecursiveInfo* getRecursiveInfo() const { return recursiveInfo.get(); }
+    RecursiveInfo* getRecursiveInfoUnsafe() { return recursiveInfo.get(); }
+
     std::shared_ptr<Expression> getLengthExpression() const {
         KU_ASSERT(recursiveInfo != nullptr);
         return recursiveInfo->bindData->lengthExpr;

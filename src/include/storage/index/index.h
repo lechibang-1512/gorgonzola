@@ -8,6 +8,10 @@
 #include "in_mem_hash_index.h"
 #include <span>
 
+namespace gorgonzola::catalog {
+class IndexCatalogEntry;
+} // namespace gorgonzola::catalog
+
 namespace gorgonzola::storage {
 class StorageManager;
 }
@@ -30,8 +34,12 @@ enum class GORGONZOLA_API IndexDefinitionType : uint8_t {
 
 class Index;
 struct IndexInfo;
+// Contract: loadFunc must reconstruct the index without touching Catalog APIs. All metadata must
+// come from the provided storageInfoBuffer or the optional catalogEntry (which may be nullptr).
+// Implementations that require auxiliary catalog data must throw if catalogEntry is null.
 using index_load_func_t = std::function<std::unique_ptr<Index>(main::ClientContext* context,
-    StorageManager* storageManager, IndexInfo, std::span<uint8_t>)>;
+    StorageManager* storageManager, const catalog::IndexCatalogEntry* catalogEntry, IndexInfo,
+    std::span<uint8_t>)>;
 
 struct GORGONZOLA_API IndexType {
     std::string typeName;
@@ -196,7 +204,10 @@ public:
     bool isLoaded() const { return loaded; }
 
     void serialize(common::Serializer& ser) const;
-    GORGONZOLA_API void load(main::ClientContext* context, StorageManager* storageManager);
+    // catalogEntry may be nullptr for indexes that only rely on serialized storage info.
+    // Implementations must not access Catalog APIs while loading.
+    GORGONZOLA_API void load(main::ClientContext* context, StorageManager* storageManager,
+        const catalog::IndexCatalogEntry* catalogEntry = nullptr);
     bool needCommitInsert() const { return index->needCommitInsert(); }
     // NOLINTNEXTLINE(readability-make-member-function-const): Semantically non-const.
     void checkpoint(main::ClientContext* context, PageAllocator& pageAllocator) {
