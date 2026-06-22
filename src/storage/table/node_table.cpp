@@ -783,6 +783,7 @@ void NodeTable::dropIndex(const std::string& name) {
         if (StringUtils::caseInsensitiveEquals(it->getName(), name)) {
             // Allow dropping both loaded and unloaded indexes. (#6040)
             indexes.erase(it);
+            hasChanges = true;
             return;
         }
     }

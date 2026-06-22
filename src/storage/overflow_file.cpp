@@ -233,20 +233,15 @@ void OverflowFile::writePageToDisk(page_idx_t pageIdx, uint8_t* data, bool newPa
 
 void OverflowFile::checkpoint(PageAllocator& pageAllocator) {
     KU_ASSERT(fileHandle);
-    if (headerPageIdx == INVALID_PAGE_IDX) {
-        // Reserve a page for the header
-        this->headerPageIdx = getNewPageIdx(&pageAllocator);
-        headerChanged = true;
+    // If no data has been written to the overflow file, skip checkpoint.
+    // The headerChanged flag is only set when actual string data (>12 bytes) is
+    // written via OverflowFileHandle::setStringOverflow(). (#6045)
+    if (!headerChanged) {
+        return;
     }
-    // Check if any handles have data to checkpoint. If all handles are empty
-    // (e.g., index created with no data inserted), skip physical checkpoint
-    // to avoid writing uninitialized state. (#6045)
-    bool hasAnyData = false;
-    for (auto& handle : handles) {
-        if (handle->hasData()) {
-            hasAnyData = true;
-            break;
-        }
+    if (headerPageIdx == INVALID_PAGE_IDX) {
+        // Reserve a page for the header (only when data has actually been written)
+        this->headerPageIdx = getNewPageIdx(&pageAllocator);
     }
     // TODO(bmwinger): Ideally this could be done separately and in parallel by each HashIndex
     // However fileHandle->addNewPages needs to be called beforehand,
@@ -254,13 +249,11 @@ void OverflowFile::checkpoint(PageAllocator& pageAllocator) {
     for (auto& handle : handles) {
         handle->checkpoint();
     }
-    if (headerChanged) {
-        uint8_t page[GORGONZOLA_PAGE_SIZE];
-        memcpy(page, &header, sizeof(header));
-        // Zero free space at the end of the header page
-        std::fill(page + sizeof(header), page + GORGONZOLA_PAGE_SIZE, 0);
-        writePageToDisk(headerPageIdx + HEADER_PAGE_IDX, page, false /*newPage*/);
-    }
+    uint8_t page[GORGONZOLA_PAGE_SIZE];
+    memcpy(page, &header, sizeof(header));
+    // Zero free space at the end of the header page
+    std::fill(page + sizeof(header), page + GORGONZOLA_PAGE_SIZE, 0);
+    writePageToDisk(headerPageIdx + HEADER_PAGE_IDX, page, false /*newPage*/);
 }
 
 
