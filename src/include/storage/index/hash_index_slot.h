@@ -61,7 +61,8 @@ struct SlotEntry {
             auto padding = sizeof(SlotEntry<T>) - sizeof(T) - sizeof(common::offset_t);
             memset(reinterpret_cast<uint8_t*>(&key) + sizeof(T), 0, padding);
             // Assumes that all the padding follows the key
-            KU_ASSERT((std::byte*)&key + sizeof(key) + padding == (std::byte*)&value);
+            KU_ASSERT(reinterpret_cast<uintptr_t>(&key) + sizeof(key) + padding ==
+                      reinterpret_cast<uintptr_t>(&value));
         }
     }
     SlotEntry() : SlotEntry(T{}, 0) {}

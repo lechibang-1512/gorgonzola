@@ -2,6 +2,9 @@ name: Generate Docs
 
 on: workflow_dispatch
 
+permissions:
+  contents: read
+
 jobs:
   build-python-package:
     runs-on: gorgonzola-self-hosted-linux-building-x86_64

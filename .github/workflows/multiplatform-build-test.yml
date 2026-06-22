@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: "0 8 * * *"
 
+permissions:
+  contents: read
+
 jobs:
   # Generate the binary db once to test that it can be read on all platforms.
   generate-binary-demo:

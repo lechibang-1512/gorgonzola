@@ -9,6 +9,9 @@ on:
         required: true
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   build-precompiled-bin:
     runs-on: self-hosted-windows

@@ -9,6 +9,9 @@ on:
         required: true
         default: false
         
+permissions:
+  contents: read
+
 jobs:
   build-windows-nodejs:
     runs-on: self-hosted-windows

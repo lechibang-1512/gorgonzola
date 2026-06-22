@@ -3,6 +3,9 @@ name: Purge Extensions
 on: 
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   get-ghcr-extensions:
     uses: ./.github/workflows/get-extensions-from-ghcr.yml

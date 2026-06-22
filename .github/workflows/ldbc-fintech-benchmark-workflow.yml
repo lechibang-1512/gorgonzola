@@ -15,6 +15,9 @@ on:
           - "1"
           - "10"
 
+permissions:
+  contents: read
+
 jobs:
   benchmark:
     name: ldbc-fintech-benchmark

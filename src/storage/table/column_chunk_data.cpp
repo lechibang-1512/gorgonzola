@@ -306,7 +306,7 @@ void ColumnChunkData::append(const ColumnChunkData* other, offset_t startPosInOt
     KU_ASSERT(numValues + numValuesToAppend <= capacity);
     memcpy(getData<uint8_t>() + numValues * numBytesPerValue,
         other->getData<uint8_t>() + startPosInOtherChunk * numBytesPerValue,
-        numValuesToAppend * numBytesPerValue);
+        (size_t)numValuesToAppend * numBytesPerValue);
     numValues += numValuesToAppend;
     updateInMemoryStats(inMemoryStats, other, startPosInOtherChunk, numValuesToAppend);
 }

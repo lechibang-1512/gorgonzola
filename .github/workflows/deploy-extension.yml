@@ -3,10 +3,14 @@ name: Deploy Extensions
 on: 
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   deploy-extensions:
     runs-on: ubuntu-22.04
     permissions:
+      contents: read
       packages: write
     steps:
       - name: Free disk space on Ubuntu runner

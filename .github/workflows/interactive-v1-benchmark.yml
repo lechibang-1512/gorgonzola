@@ -17,6 +17,9 @@ on:
           - "30"
           - "100"
 
+permissions:
+  contents: read
+
 jobs:
   benchmark:
     name: interactive-v1-benchmark

@@ -16,6 +16,9 @@ on:
 env:
   PIP_BREAK_SYSTEM_PACKAGES: 1
 
+permissions:
+  contents: read
+
 jobs:
   build-precompiled-bin-x86_64:
     runs-on: gorgonzola-self-hosted-linux-building-x86_64

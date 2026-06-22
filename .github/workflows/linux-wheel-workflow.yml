@@ -9,6 +9,9 @@ on:
         required: true
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   build-linux-wheels-x86_64:
     runs-on: gorgonzola-self-hosted-linux-building-x86_64

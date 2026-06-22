@@ -286,7 +286,7 @@ static void scanArrowArraySparseUnion(const ArrowSchema* schema, const ArrowArra
     // must also be semantically correct. this is why this scanning works.
     // however, there is possibly room for optimization here.
     // eg. nulling out unselected children
-    for (int8_t i = 0; i < array->n_children; i++) {
+    for (int64_t i = 0; i < array->n_children; i++) {
         ArrowConverter::fromArrowArray(schema->children[i], array->children[i],
             *UnionVector::getValVector(&outputVector, i), mask->getChild(i),
             srcOffset + array->children[i]->offset, dstOffset, count);

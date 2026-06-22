@@ -105,7 +105,7 @@ void RadixSort::radixSort(uint8_t* keyBlockPtr, uint32_t numTuplesToSort, uint32
     // If the data is in the tmp block, copy the data from tmp block back.
     if (isInTmpBlock) {
         memcpy(keyBlockPtr - numBytesSorted, tmpKeyBlockPtr - numBytesSorted,
-            numTuplesToSort * numBytesPerTuple);
+            (size_t)numTuplesToSort * numBytesPerTuple);
     }
 }
 
@@ -148,7 +148,7 @@ void RadixSort::reOrderKeyBlock(TieRange& keyBlockTie, uint8_t* keyBlockPtr) {
         tmpKeyBlockPtr += numBytesPerTuple;
     }
     memcpy(keyBlockPtr, tmpSortingResultBlock->getData(),
-        keyBlockTie.getNumTuples() * numBytesPerTuple);
+        (size_t)keyBlockTie.getNumTuples() * numBytesPerTuple);
 }
 
 template<typename TYPE>

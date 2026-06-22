@@ -5,6 +5,9 @@ on:
 
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-precompiled-bin-linux:
     uses: ./.github/workflows/linux-precompiled-bin-workflow.yml

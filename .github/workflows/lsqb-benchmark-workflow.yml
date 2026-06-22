@@ -24,6 +24,9 @@ on:
         default: 60000
         type: number
 
+permissions:
+  contents: read
+
 jobs:
   benchmark:
     name: benchmark

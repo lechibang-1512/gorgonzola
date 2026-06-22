@@ -9,6 +9,9 @@ on:
         required: true
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   build-wasm:
     runs-on: gorgonzola-self-hosted-testing
