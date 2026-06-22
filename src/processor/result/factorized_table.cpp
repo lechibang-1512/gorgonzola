@@ -200,8 +200,34 @@ void FactorizedTable::lookup(std::span<ValueVector*> vectors,
         } else {
             // If the caller wants to read an unflat column from factorizedTable, the vector
             // must be unflat and the numTuplesToScan should be 1.
-            KU_ASSERT(!vector->state->isFlat() && numTuplesToRead == 1);
-            readUnflatCol(tuplesToRead + startPos, colIdx, *vector);
+            // If the destination vector is flat, copy the first element from the unflat column.
+            if (vector->state->isFlat()) {
+                KU_ASSERT(numTuplesToRead == 1);
+                auto overflowColValue =
+                    *(overflow_value_t*)(tuplesToRead[startPos] + tableSchema.getColOffset(colIdx));
+                auto numBytesPerValue = LogicalTypeUtils::getRowLayoutSize(vector->dataType);
+                auto pos = vector->state->getSelVector()[0];
+                if (overflowColValue.numElements == 0) {
+                    vector->setNull(pos, true);
+                } else {
+                    if (hasNoNullGuarantee(colIdx)) {
+                        vector->setNull(pos, false);
+                        vector->copyFromRowData(pos, overflowColValue.value);
+                    } else {
+                        auto overflowColNullData =
+                            overflowColValue.value + overflowColValue.numElements * numBytesPerValue;
+                        if (isOverflowColNull(overflowColNullData, 0, colIdx)) {
+                            vector->setNull(pos, true);
+                        } else {
+                            vector->setNull(pos, false);
+                            vector->copyFromRowData(pos, overflowColValue.value);
+                        }
+                    }
+                }
+            } else {
+                KU_ASSERT(numTuplesToRead == 1);
+                readUnflatCol(tuplesToRead + startPos, colIdx, *vector);
+            }
         }
     }
 }

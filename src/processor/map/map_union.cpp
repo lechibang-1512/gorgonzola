@@ -34,7 +34,13 @@ std::unique_ptr<PhysicalOperator> PlanMapper::mapUnionAll(const LogicalOperator*
         columnIndices.push_back(i);
     }
     auto info = UnionAllScanInfo(std::move(outputPositions), std::move(columnIndices));
-    auto maxMorselSize = tables[0]->hasUnflatCol() ? 1 : DEFAULT_VECTOR_CAPACITY;
+    auto maxMorselSize = DEFAULT_VECTOR_CAPACITY;
+    for (auto& table : tables) {
+        if (table->hasUnflatCol()) {
+            maxMorselSize = 1;
+            break;
+        }
+    }
     auto unionSharedState = make_shared<UnionAllScanSharedState>(std::move(tables), maxMorselSize);
     auto printInfo = std::make_unique<UnionAllScanPrintInfo>(expressionsToUnion);
     auto scan = make_unique<UnionAllScan>(std::move(info), unionSharedState, getOperatorID(),

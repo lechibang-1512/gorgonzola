@@ -130,16 +130,20 @@ std::vector<BoundInsertInfo> Binder::bindInsertInfos(QueryGraphCollection& query
         auto queryGraph = queryGraphCollection.getQueryGraphUnsafe(i);
         // Ensure query graph does not violate declared schema.
         analyzer.pruneLabel(*queryGraph);
+        std::unordered_set<std::string> newPatternsInClause;
         for (auto j = 0u; j < queryGraph->getNumQueryNodes(); ++j) {
             auto node = queryGraph->getQueryNode(j);
             if (node->getVariableName().empty()) { // Always create anonymous node.
                 bindInsertNode(node, result);
                 continue;
             }
-            if (patternsInScope.contains(node->getVariableName())) {
+            if (patternsInScope_.contains(node->getVariableName())) {
                 continue;
             }
-            patternsInScope.insert(node->getVariableName());
+            if (newPatternsInClause.contains(node->getVariableName())) {
+                throw BinderException("Variable " + node->getVariableName() + " bound multiple times in the same CREATE/MERGE clause.");
+            }
+            newPatternsInClause.insert(node->getVariableName());
             bindInsertNode(node, result);
         }
         for (auto j = 0u; j < queryGraph->getNumQueryRels(); ++j) {
@@ -148,10 +152,13 @@ std::vector<BoundInsertInfo> Binder::bindInsertInfos(QueryGraphCollection& query
                 bindInsertRel(rel, result);
                 continue;
             }
-            if (patternsInScope.contains(rel->getVariableName())) {
-                continue;
+            if (patternsInScope_.contains(rel->getVariableName())) {
+                throw BinderException("Variable " + rel->getVariableName() + " already bound.");
             }
-            patternsInScope.insert(rel->getVariableName());
+            if (newPatternsInClause.contains(rel->getVariableName())) {
+                throw BinderException("Variable " + rel->getVariableName() + " bound multiple times in the same CREATE/MERGE clause.");
+            }
+            newPatternsInClause.insert(rel->getVariableName());
             bindInsertRel(rel, result);
         }
     }

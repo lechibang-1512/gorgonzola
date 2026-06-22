@@ -1,0 +1,21 @@
+-DATASET CSV empty
+--
+
+-CASE Issue5958_CopyFromUnwind
+
+-STATEMENT CREATE NODE TABLE Person(id INT64, age INT64, PRIMARY KEY(id));
+---- ok
+-STATEMENT COPY Person FROM (UNWIND RANGE(1, 10) AS i RETURN i as ID, i as age);
+---- ok
+-STATEMENT MATCH (p:Person) RETURN p.id, p.age ORDER BY p.id;
+---- 10
+1|1
+2|2
+3|3
+4|4
+5|5
+6|6
+7|7
+8|8
+9|9
+10|10

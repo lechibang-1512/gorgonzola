@@ -12,6 +12,7 @@
 #include "common/exception/binder.h"
 #include "common/string_format.h"
 #include "common/utils.h"
+#include "common/case_insensitive_map.h"
 #include "function/gds/rec_joins.h"
 #include "function/built_in_function_utils.h"
 #include "function/rewrite_function.h"
@@ -220,7 +221,7 @@ std::shared_ptr<Expression> Binder::createPath(const std::string& pathName,
 
 static std::vector<std::string> getPropertyNames(const std::vector<TableCatalogEntry*>& entries) {
     std::vector<std::string> result;
-    std::unordered_set<std::string> propertyNamesSet;
+    common::case_insensitve_set_t propertyNamesSet;
     for (auto& entry : entries) {
         for (auto& property : entry->getProperties()) {
             if (propertyNamesSet.contains(property.getName())) {
