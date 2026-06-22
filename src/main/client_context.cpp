@@ -300,9 +300,11 @@ static void bindParametersNoLock(PreparedStatement& preparedStatement,
     }
     for (auto& key : preparedStatement.getUnknownParameters()) {
         if (!inputParams.contains(key)) {
-            throw Exception("Parameter " + key + " not found.");
+            auto nullValue = Value::createNullValue();
+            preparedStatement.addParameter(key, &nullValue);
+        } else {
+            preparedStatement.addParameter(key, inputParams.at(key).get());
         }
-        preparedStatement.addParameter(key, inputParams.at(key).get());
     }
 }
 

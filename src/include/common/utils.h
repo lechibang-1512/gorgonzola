@@ -23,9 +23,9 @@ public:
                                                 static_cast<U>(((U)1 << numBits) - 1));
     }
 
-    // constructs all 1s mask while avoiding overflow/underflow for int128
+    // constructs all 1s mask while avoiding overflow/underflow for int128 and uint128
     template<typename T>
-        requires std::same_as<std::remove_cvref_t<T>, int128_t>
+        requires std::same_as<std::remove_cvref_t<T>, int128_t> || std::same_as<std::remove_cvref_t<T>, uint128_t>
     static T all1sMaskForLeastSignificantBits(uint32_t numBits) {
         static constexpr uint8_t numBitsInT = sizeof(T) * 8;
 

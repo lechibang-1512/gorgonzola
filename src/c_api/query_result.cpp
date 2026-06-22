@@ -106,7 +106,10 @@ gorgonzola_state gorgonzola_query_result_get_next(gorgonzola_query_result* query
 }
 
 char* gorgonzola_query_result_to_string(gorgonzola_query_result* query_result) {
-    std::string result_string = static_cast<QueryResult*>(query_result->_query_result)->toString();
+    auto* qr = static_cast<QueryResult*>(query_result->_query_result);
+    auto savedIterPos = qr->getNextTupleIdx();
+    std::string result_string = qr->toString();
+    qr->resetIteratorTo(savedIterPos);
     return convertToOwnedCString(result_string);
 }
 

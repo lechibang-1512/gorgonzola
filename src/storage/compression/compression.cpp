@@ -536,6 +536,29 @@ inline int128_t abs<int128_t>(int128_t value) {
     return value >= 0 ? value : -value;
 }
 
+template<typename T>
+inline typename numeric_utils::MakeUnSignedT<T> safe_abs_to_unsigned(T value) {
+    using U = typename numeric_utils::MakeUnSignedT<T>;
+    if constexpr (std::is_same_v<T, int128_t>) {
+        if (value >= 0) {
+            uint128_t res;
+            res.low = value.low;
+            res.high = static_cast<uint64_t>(value.high);
+            return res;
+        } else {
+            uint128_t res;
+            res.low = value.low;
+            res.high = static_cast<uint64_t>(value.high);
+            return -res;
+        }
+    } else {
+        if (value >= 0) {
+            return static_cast<U>(value);
+        }
+        return -static_cast<U>(value);
+    }
+}
+
 template<IntegerBitpackingType T>
 BitpackInfo<T> IntegerBitpacking<T>::getPackingInfo(const CompressionMetadata& metadata) {
     auto max = metadata.max.get<T>();
@@ -562,12 +585,12 @@ BitpackInfo<T> IntegerBitpacking<T>::getPackingInfo(const CompressionMetadata& m
         hasNegative = true;
     } else if (min < 0) {
         bitWidth =
-            static_cast<uint8_t>(numeric_utils::bitWidth((U)std::max(abs<T>(min), abs<T>(max)))) +
+            static_cast<uint8_t>(numeric_utils::bitWidth(std::max(safe_abs_to_unsigned<T>(min), safe_abs_to_unsigned<T>(max)))) +
             1;
         hasNegative = true;
     } else {
         bitWidth =
-            static_cast<uint8_t>(numeric_utils::bitWidth((U)std::max(abs<T>(min), abs<T>(max))));
+            static_cast<uint8_t>(numeric_utils::bitWidth(std::max(safe_abs_to_unsigned<T>(min), safe_abs_to_unsigned<T>(max))));
         hasNegative = false;
     }
     return BitpackInfo<T>{bitWidth, hasNegative, offset};
@@ -1167,7 +1190,7 @@ std::pair<std::optional<StorageValue>, std::optional<StorageValue>> getMinMaxSto
             }
         },
         [&]<typename T>(T)
-            requires(numeric_utils::IsIntegral<T> || std::floating_point<T>)
+            requires((numeric_utils::IsIntegral<T> && !std::same_as<T, uint128_t>) || std::floating_point<T>)
         {
             if (numValues > 0) {
                 auto typedData = std::span(reinterpret_cast<const T*>(data) + offset, numValues);
@@ -1215,7 +1238,7 @@ std::pair<std::optional<StorageValue>, std::optional<StorageValue>> getMinMaxSto
     TypeUtils::visit(
         physicalType,
         [&]<typename T>(T)
-            requires(numeric_utils::IsIntegral<T> || std::floating_point<T>)
+            requires((numeric_utils::IsIntegral<T> && !std::same_as<T, uint128_t>) || std::floating_point<T>)
         {
             if (numValues > 0) {
                 auto typedData =

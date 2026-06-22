@@ -133,6 +133,7 @@ void BitpackingUtils<UncompressedType>::packSingle(const UncompressedType src,
 }
 
 template struct BitpackingUtils<common::int128_t>;
+template struct BitpackingUtils<common::uint128_t>;
 template struct BitpackingUtils<uint64_t>;
 template struct BitpackingUtils<uint32_t>;
 template struct BitpackingUtils<uint16_t>;

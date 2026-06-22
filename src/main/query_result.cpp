@@ -118,6 +118,16 @@ void QueryResult::setDBLifeCycleManager(
     }
 }
 
+void QueryResult::resetIteratorTo(uint64_t idx) {
+    resetIterator();
+    for (uint64_t i = 0; i < idx; ++i) {
+        if (hasNext()) {
+            getNext();
+        }
+    }
+    nextTupleIdx = idx;
+}
+
 std::unique_ptr<QueryResult> QueryResult::getQueryResultWithError(const std::string& errorMessage) {
     // TODO(Xiyang): consider introduce error query result class.
     auto queryResult = std::make_unique<MaterializedQueryResult>();

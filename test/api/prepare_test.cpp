@@ -203,8 +203,8 @@ TEST_F(ApiTest, ParamNotExist) {
     auto preparedStatement =
         conn->prepare("MATCH (a:person) WHERE a.fName STARTS WITH $n RETURN COUNT(*)");
     auto result = conn->execute(preparedStatement.get(), std::make_pair(std::string("a"), "A"));
-    ASSERT_FALSE(result->isSuccess());
-    ASSERT_STREQ("Parameter n not found.", result->getErrorMessage().c_str());
+    ASSERT_TRUE(result->isSuccess());
+    ASSERT_STREQ("0\n", result->getNext()->toString().c_str());
     result = conn->execute(preparedStatement.get(), std::make_pair(std::string("a"), "A"),
         std::make_pair(std::string("n"), "A"));
     ASSERT_TRUE(result->isSuccess());
@@ -256,5 +256,14 @@ TEST_F(ApiTest, ParameterWith) {
     auto result = conn->execute(preparedStatement.get(),
         std::make_pair(std::string("1"), std::string("abc")));
     auto groupTruth = std::vector<std::string>{"abc"};
+    ASSERT_EQ(groupTruth, TestHelper::convertResultToString(*result));
+}
+
+TEST_F(ApiTest, PrepareNoBindingIsNULL) {
+    auto preparedStatement = conn->prepare("RETURN $1 IS NULL");
+    ASSERT_TRUE(preparedStatement->isSuccess());
+    auto result = conn->execute(preparedStatement.get());
+    ASSERT_TRUE(result->isSuccess());
+    auto groupTruth = std::vector<std::string>{"True"};
     ASSERT_EQ(groupTruth, TestHelper::convertResultToString(*result));
 }

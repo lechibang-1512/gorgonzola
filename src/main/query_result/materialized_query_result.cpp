@@ -54,6 +54,7 @@ std::shared_ptr<FlatTuple> MaterializedQueryResult::getNext() {
             "No more tuples in QueryResult, Please check hasNext() before calling getNext().");
     }
     iterator->getNext(*tuple);
+    nextTupleIdx++;
     return tuple;
 }
 
@@ -61,6 +62,7 @@ void MaterializedQueryResult::resetIterator() {
     checkDatabaseClosedOrThrow();
     validateQuerySucceed();
     iterator->resetState();
+    nextTupleIdx = 0;
 }
 
 std::string MaterializedQueryResult::toString() const {

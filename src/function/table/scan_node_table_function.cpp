@@ -195,13 +195,14 @@ static common::offset_t primaryKeyScanNodeTableFunc(const TableFuncInput& input,
             return 0;
         }
         auto nodeID = nodeID_t{nodeOffset, bindData->table->getTableID()};
-        localState->scanState->nodeIDVector->setValue<nodeID_t>(pos, nodeID);
+        localState->scanState->nodeIDVector->setValue<nodeID_t>(0, nodeID);
 
         localState->scanState->setToTable(transaction, bindData->table, bindData->columnIDs,
             copyVector(bindData->columnPredicates));
         initScanStateVectors(*localState->scanState, outVectors, bindData->columnCasters,
             MemoryManager::Get(*bindData->context));
         bindData->table->initScanState(transaction, *localState->scanState, nodeID.tableID, nodeOffset);
+        localState->scanState->nodeIDVector->state->getSelVectorUnsafe().setToUnfiltered(1);
         auto succeeded = bindData->table->lookup(transaction, *localState->scanState);
         if (succeeded) {
             bindData->castColumns();

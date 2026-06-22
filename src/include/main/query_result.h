@@ -85,10 +85,12 @@ public:
      * again.
      */
     GORGONZOLA_API virtual std::shared_ptr<processor::FlatTuple> getNext() = 0;
+    GORGONZOLA_API uint64_t getNextTupleIdx() const { return nextTupleIdx; }
     /**
      * @brief Resets the result tuple iterator.
      */
     GORGONZOLA_API virtual void resetIterator() = 0;
+    GORGONZOLA_API virtual void resetIteratorTo(uint64_t idx);
     /**
      * @return string of first query result.
      */
@@ -170,6 +172,7 @@ protected:
     };
 
     QueryResultType type;
+    uint64_t nextTupleIdx = 0;
 
     bool success = true;
 
