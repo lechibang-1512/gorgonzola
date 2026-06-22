@@ -95,12 +95,6 @@ std::shared_ptr<Expression> LabelFunction::rewriteFunc(const RewriteFunctionBind
         return expressionBinder->createNullLiteralExpression();
     }
     expression_vector children;
-    if (argument->expressionType == ExpressionType::VARIABLE) {
-        children.push_back(input.arguments[0]);
-        children.push_back(expressionBinder->createLiteralExpression(InternalKeyword::LABEL));
-        return expressionBinder->bindScalarFunctionExpression(children,
-            StructExtractFunctions::name);
-    }
     auto disableLiteralRewrite = expressionBinder->getConfig().disableLabelFunctionLiteralRewrite;
     if (ExpressionUtil::isNodePattern(*argument)) {
         auto& node = argument->constCast<NodeExpression>();
@@ -130,6 +124,11 @@ std::shared_ptr<Expression> LabelFunction::rewriteFunc(const RewriteFunctionBind
         children.push_back(rel.getInternalID());
         auto map = getRelTableIDToLabel(rel.getEntries());
         children.push_back(getLabelsAsLiteral(map, expressionBinder));
+    } else {
+        children.push_back(input.arguments[0]);
+        children.push_back(expressionBinder->createLiteralExpression(InternalKeyword::LABEL));
+        return expressionBinder->bindScalarFunctionExpression(children,
+            StructExtractFunctions::name);
     }
     KU_ASSERT(children.size() == 2);
     auto function = std::make_unique<ScalarFunction>(LabelFunction::name,

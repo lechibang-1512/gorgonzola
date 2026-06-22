@@ -1,0 +1,14 @@
+-DATASET CSV issue_6050
+--
+
+-CASE Issue6050
+
+-STATEMENT CREATE NODE TABLE Person(name STRING PRIMARY KEY, occupation STRING);
+---- ok
+-STATEMENT CREATE REL TABLE LivesWith(FROM Person TO Person);
+---- ok
+-STATEMENT CREATE (p:Person {name: 'Alice'})-[:LivesWith]->(:Person {name: 'Bob'});
+---- ok
+-STATEMENT MATCH p = (n)-[:LivesWith]->(m:Person {name: 'Bob'}) WITH nodes(p) AS ns RETURN label(ns[1]);
+---- 1
+Person
