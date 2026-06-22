@@ -1305,7 +1305,19 @@ GORGONZOLA_C_API gorgonzola_state gorgonzola_value_get_string(gorgonzola_value* 
  * @param[out] out_result The output parameter that will hold the blob value.
  * @return The state indicating the success or failure of the operation.
  */
+// Deprecated: returns null-terminated string, truncating binary data containing null bytes.
 GORGONZOLA_C_API gorgonzola_state gorgonzola_value_get_blob(gorgonzola_value* value, uint8_t** out_result);
+/**
+ * @brief Returns the blob value of the given value with its size. Unlike gorgonzola_value_get_blob,
+ * this function correctly handles binary data containing null bytes. The value must be of type BLOB.
+ * The caller is responsible for freeing the returned buffer with gorgonzola_destroy_blob.
+ * @param value The value to return.
+ * @param[out] out_result The output parameter that will hold the blob data.
+ * @param[out] out_size The output parameter that will hold the size of the blob in bytes.
+ * @return The state indicating the success or failure of the operation.
+ */
+GORGONZOLA_C_API gorgonzola_state gorgonzola_value_get_blob_with_size(gorgonzola_value* value, uint8_t** out_result,
+    uint64_t* out_size);
 /**
  * @brief Returns the uuid value of the given value.
  * to a string. The value must be of type UUID.

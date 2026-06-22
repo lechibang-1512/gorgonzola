@@ -1,0 +1,23 @@
+-DATASET CSV empty
+--
+
+-CASE Issue6010_IN_with_list_slice
+
+-STATEMENT RETURN 3 IN [1, 2, 3][1:2] AS r;
+---- 1
+False
+-STATEMENT RETURN 2 IN [1, 2, 3][1:2] AS r;
+---- 1
+True
+-STATEMENT RETURN 3 IN [1, 2] + [3, 4] AS r;
+---- 1
+True
+-STATEMENT RETURN 3 IN [1, 2, 3] AS r;
+---- 1
+True
+-STATEMENT RETURN 4 IN [1, 2, 3] AS r;
+---- 1
+False
+-STATEMENT RETURN 3 IN [1, 2, 3][2:3] AS r;
+---- 1
+True

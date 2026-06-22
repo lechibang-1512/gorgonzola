@@ -40,6 +40,10 @@ union StorageValue {
     explicit StorageValue(T value) : signedInt128(value) {}
 
     template<typename T>
+        requires std::same_as<std::remove_cvref_t<T>, common::uint128_t>
+    explicit StorageValue(T value) : signedInt128(static_cast<common::int128_t>(value)) {}
+
+    template<typename T>
         requires std::integral<T> && std::numeric_limits<T>::is_signed
     // zero-initialize union padding
     explicit StorageValue(T value) : StorageValue(common::int128_t(0)) {
@@ -72,6 +76,8 @@ union StorageValue {
     T get() const {
         if constexpr (std::same_as<std::remove_cvref_t<T>, common::int128_t>) {
             return signedInt128;
+        } else if constexpr (std::same_as<std::remove_cvref_t<T>, common::uint128_t>) {
+            return static_cast<common::uint128_t>(signedInt128);
         } else if constexpr (std::integral<T>) {
             if constexpr (std::numeric_limits<T>::is_signed) {
                 return static_cast<T>(signedInt);

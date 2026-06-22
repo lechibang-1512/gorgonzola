@@ -746,6 +746,27 @@ gorgonzola_state gorgonzola_value_get_blob(gorgonzola_value* value, uint8_t** ou
     return GorgonzolaSuccess;
 }
 
+gorgonzola_state gorgonzola_value_get_blob_with_size(gorgonzola_value* value, uint8_t** out_result,
+    uint64_t* out_size) {
+    auto logical_type_id = static_cast<Value*>(value->_value)->getDataType().getLogicalTypeID();
+    if (logical_type_id != LogicalTypeID::BLOB) {
+        return GorgonzolaError;
+    }
+    try {
+        auto blob = static_cast<Value*>(value->_value)->getValue<std::string>();
+        *out_size = blob.size();
+        // Use malloc + memcpy instead of convertToOwnedCString to preserve null bytes (#5977)
+        *out_result = (uint8_t*)malloc(blob.size());
+        if (*out_result == nullptr) {
+            return GorgonzolaError;
+        }
+        memcpy(*out_result, blob.data(), blob.size());
+    } catch (Exception& e) {
+        return GorgonzolaError;
+    }
+    return GorgonzolaSuccess;
+}
+
 gorgonzola_state gorgonzola_value_get_uuid(gorgonzola_value* value, char** out_result) {
     auto logical_type_id = static_cast<Value*>(value->_value)->getDataType().getLogicalTypeID();
     if (logical_type_id != LogicalTypeID::UUID) {

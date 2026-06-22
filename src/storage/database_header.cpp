@@ -1,6 +1,7 @@
 #include "storage/database_header.h"
 
 #include <cstring>
+#include <vector>
 
 #include "common/exception/runtime.h"
 #include "common/file_system/file_info.h"
@@ -32,11 +33,11 @@ static void validateMagicBytes(common::Deserializer& deSer) {
     std::string key;
     deSer.validateDebuggingInfo(key, "magic");
     const auto numMagicBytes = strlen(StorageVersionInfo::MAGIC_BYTES);
-    uint8_t magicBytes[4];
+    std::vector<uint8_t> magicBytes(numMagicBytes);
     for (auto i = 0u; i < numMagicBytes; i++) {
         deSer.deserializeValue<uint8_t>(magicBytes[i]);
     }
-    if (memcmp(magicBytes, StorageVersionInfo::MAGIC_BYTES, numMagicBytes) != 0) {
+    if (memcmp(magicBytes.data(), StorageVersionInfo::MAGIC_BYTES, numMagicBytes) != 0) {
         throw common::RuntimeException(
             "Unable to open database. The file is not a valid Gorgonzola database file!");
     }

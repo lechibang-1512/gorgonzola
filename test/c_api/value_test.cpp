@@ -1780,6 +1780,44 @@ TEST_F(CApiValueTest, GetBlob) {
     gorgonzola_value_destroy(badValue);
 }
 
+TEST_F(CApiValueTest, GetBlobWithSize) {
+    gorgonzola_query_result result;
+    gorgonzola_flat_tuple flatTuple;
+    gorgonzola_state state;
+    auto connection = getConnection();
+    // Use a blob containing null bytes to ensure it's not truncated
+    state =
+        gorgonzola_connection_query(connection, (char*)R"(RETURN BLOB('\xAA\x00\xCC\x1A\x00');)", &result);
+    ASSERT_EQ(state, GorgonzolaSuccess);
+    ASSERT_TRUE(gorgonzola_query_result_is_success(&result));
+    ASSERT_TRUE(gorgonzola_query_result_has_next(&result));
+    state = gorgonzola_query_result_get_next(&result, &flatTuple);
+    ASSERT_EQ(state, GorgonzolaSuccess);
+    gorgonzola_value value;
+    ASSERT_EQ(gorgonzola_flat_tuple_get_value(&flatTuple, 0, &value), GorgonzolaSuccess);
+    ASSERT_TRUE(value._is_owned_by_cpp);
+    ASSERT_FALSE(gorgonzola_value_is_null(&value));
+    
+    uint8_t* blob;
+    uint64_t size;
+    ASSERT_EQ(gorgonzola_value_get_blob_with_size(&value, &blob, &size), GorgonzolaSuccess);
+    ASSERT_EQ(size, 5);
+    ASSERT_EQ(blob[0], 0xAA);
+    ASSERT_EQ(blob[1], 0x00);
+    ASSERT_EQ(blob[2], 0xCC);
+    ASSERT_EQ(blob[3], 0x1A);
+    ASSERT_EQ(blob[4], 0x00);
+    gorgonzola_destroy_blob(blob);
+    gorgonzola_value_destroy(&value);
+    gorgonzola_flat_tuple_destroy(&flatTuple);
+    gorgonzola_query_result_destroy(&result);
+
+    gorgonzola_value* badValue = gorgonzola_value_create_string((char*)"abcdefg");
+    ASSERT_EQ(gorgonzola_value_get_blob_with_size(badValue, &blob, &size), GorgonzolaError);
+    gorgonzola_value_destroy(badValue);
+}
+
+
 TEST_F(CApiValueTest, GetUUID) {
     gorgonzola_query_result result;
     gorgonzola_flat_tuple flatTuple;

@@ -608,7 +608,7 @@ void fastunpack(const uint8_t* in, T* out, uint32_t bitWidth) {
         FastPForLib::fastunpack((const uint8_t*)in, out, bitWidth);
     } else {
         static_assert(std::is_same_v<numeric_utils::MakeSignedT<T>, int128_t>);
-        Int128Packer::unpack(reinterpret_cast<const uint32_t*>(in), out, bitWidth);
+        Int128Packer::unpack(reinterpret_cast<const uint32_t*>(in), reinterpret_cast<common::int128_t*>(out), bitWidth);
     }
 }
 
@@ -623,7 +623,7 @@ void fastpack(const T* in, uint8_t* out, uint8_t bitWidth) {
         FastPForLib::fastpack(in, (uint8_t*)out, bitWidth);
     } else {
         static_assert(std::is_same_v<numeric_utils::MakeSignedT<T>, int128_t>);
-        Int128Packer::pack(in, reinterpret_cast<uint32_t*>(out), bitWidth);
+        Int128Packer::pack(reinterpret_cast<const common::int128_t*>(in), reinterpret_cast<uint32_t*>(out), bitWidth);
     }
 }
 
@@ -838,6 +838,7 @@ template class IntegerBitpacking<int16_t>;
 template class IntegerBitpacking<int32_t>;
 template class IntegerBitpacking<int64_t>;
 template class IntegerBitpacking<int128_t>;
+template class IntegerBitpacking<uint128_t>;
 template class IntegerBitpacking<uint8_t>;
 template class IntegerBitpacking<uint16_t>;
 template class IntegerBitpacking<uint32_t>;

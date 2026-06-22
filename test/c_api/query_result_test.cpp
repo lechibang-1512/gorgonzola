@@ -82,6 +82,32 @@ TEST_F(CApiQueryResultTest, ToString) {
     gorgonzola_query_result_destroy(&result);
 }
 
+TEST_F(CApiQueryResultTest, ToStringDoesNotExhaustIterator) {
+    gorgonzola_query_result result;
+    gorgonzola_flat_tuple row;
+    gorgonzola_state state;
+    auto connection = getConnection();
+    state = gorgonzola_connection_query(connection,
+        "MATCH (a:person) RETURN a.fName, a.age ORDER BY a.fName", &result);
+    ASSERT_EQ(state, GorgonzolaSuccess);
+    ASSERT_TRUE(gorgonzola_query_result_is_success(&result));
+
+    // Convert to string first
+    char* str_repr = gorgonzola_query_result_to_string(&result);
+    gorgonzola_destroy_string(str_repr);
+
+    // We should still be able to iterate the result normally!
+    ASSERT_TRUE(gorgonzola_query_result_has_next(&result));
+    state = gorgonzola_query_result_get_next(&result, &row);
+    ASSERT_EQ(state, GorgonzolaSuccess);
+    auto flatTupleCpp = (FlatTuple*)(row._flat_tuple);
+    ASSERT_EQ(flatTupleCpp->getValue(0)->getValue<std::string>(), "Alice");
+    gorgonzola_flat_tuple_destroy(&row);
+
+    gorgonzola_query_result_destroy(&result);
+}
+
+
 TEST_F(CApiQueryResultTest, GetNumColumns) {
     gorgonzola_query_result result;
     gorgonzola_state state;
