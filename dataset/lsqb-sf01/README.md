@@ -1,4 +1,4 @@
-The used dataset here is from the Labelled Subgraph Query Benchmark (LSQB) SF-0.1 dataset, which can be downloaded herehttps://repository.surfsara.nl/datasets/cwi/lsqb/files/lsqb-projected/social-network-sf0.1-projected-fk.tar.zst.
+The used dataset here is from the Labelled Subgraph Query Benchmark (LSQB) SF-0.1 dataset, which can be downloaded 
 Note that this is not an official LDBC benchmark, we only use the dataset for testing and demonstration purposes by ourselves.
 
 The original LDBC dataset is subject to the following license terms:

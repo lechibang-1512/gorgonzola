@@ -4,7 +4,7 @@ Describe the changes that this PR introduces. Link any relevant # (issue) or # (
 
 ## Types of changes
 
-- [ ] Bug fix
+
 - [ ] New feature
 - [ ] Breaking change
 - [ ] Documentation Update
